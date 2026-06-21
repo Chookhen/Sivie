@@ -1,10 +1,10 @@
-# RoadWatch — AI Road Integrity Operations
+# Sivic — AI Road Integrity Operations
 
 > Government-grade road-hazard intelligence: detect infrastructure defects from
 > vehicle footage, geolocate them on a live map, rank them by an explainable
 > priority score, and manage them as work orders in a persistent database.
 
-RoadWatch turns ordinary dashcam / phone video + a GPS track into a prioritized,
+Sivic turns ordinary dashcam / phone video + a GPS track into a prioritized,
 mapped, auditable hazard database. A computer-vision pipeline finds potholes,
 cracks, obscured signs, faded markings and debris; each detection is geolocated,
 enriched with the real street name, deduplicated across passes, and scored with a
@@ -12,6 +12,53 @@ enriched with the real street name, deduplicated across passes, and scored with 
 vision model). A React operations console visualizes everything: a severity-colored
 map, an editable operations database, an analysis review board, and a one-click
 **Processing** page that runs the whole pipeline from the browser.
+
+---
+
+## Quick start
+
+The fastest way to see Sivic running end-to-end — **mock mode, no API keys, no
+footage, ~3 minutes**. Copy-paste each block in order.
+
+**Prerequisites:** Python 3.9+, Node 18+, [`ffmpeg`](https://ffmpeg.org/) and `git`.
+
+```bash
+# 1 · Clone the repo
+git clone https://github.com/Chookhen/road-hazard-detector.git
+cd road-hazard-detector
+
+# 2 · Install the Python pipeline + API
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# 3 · Generate demo data with the MOCK detector (no keys / no video needed)
+python main.py --input ./samples --mock \
+  --save-frames-dir web/public/frames --output web/public/detections.json
+```
+
+```bash
+# 4 · Start the backend API  (keep this terminal open)
+uvicorn server.app:app --host 127.0.0.1 --port 8000 --reload
+```
+
+```bash
+# 5 · Load the generated data into the operations DB
+curl -X POST http://localhost:8000/api/reseed
+
+# 6 · Start the web console  (new terminal, from the repo root)
+cd web && npm install && npm run dev
+```
+
+Open **http://localhost:5173** — the Map, Operations DB, Analysis and Processing
+tabs are now live.
+
+> **Map tiles** need a free [Mapbox token](https://account.mapbox.com/access-tokens/):
+> create `web/.env` with `VITE_MAPBOX_TOKEN=pk....`. The Operations DB and Analysis
+> tabs work fully without it.
+>
+> **Real AI** (instead of `--mock`): add a `GEMINI_API_KEY` to `.env` (see
+> [Getting started](#getting-started)) and run with `--detector yolo --enrich
+> --ai-priority` — or just use the in-app **Processing** tab.
 
 ---
 

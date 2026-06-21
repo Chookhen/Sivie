@@ -17,6 +17,7 @@ real_test.json
 hazard_db.json
 web/public/detections*.json
 data/occurrences.json
-# Generated pipeline artifacts (extracted frames + uploaded source files)
+# Generated pipeline artifacts (extracted frames + uploaded source files + backups)
 web/public/frames/
 data/uploads/
+data/backups/
