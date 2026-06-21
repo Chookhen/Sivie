@@ -156,10 +156,19 @@ GPS step earlier in the chain; enrichment consumes `lat`/`lng`.
     residential/...). Maps to road_context: motorway/trunk -> freeway,
     primary/secondary -> arterial, residential/service -> residential.
 - `nearby_pois(lat, lng, radius_m=50) -> list[POI]` via Overpass.
-  - Categories: school, hospital, **crosswalk** (highway=crossing).
+  - Categories: school, hospital, **kindergarten/daycare**
+    (amenity=kindergarten), **crosswalk** (highway=crossing).
   - Return name + category + distance.
 - `enrich(report_dict) -> report_dict`: add `road_name`, `road_class`,
   and `nearby_pois` to each detection.
+
+### DECISION: OSM road_class OVERRIDES the LLM's road_context
+The vision model only *guesses* road_context from the image. OSM road_class is
+ground truth. When a detection gets a valid road_class, OVERWRITE its
+`road_context` with the OSM-derived value, then RECOMPUTE the deterministic
+`priority` (via scoring.compute_priority) so the baseline uses the verified
+road type. Keep the original LLM guess in `road_context_vision` for reference.
+Geocoding provider: Nominatim for v1 (switch to Mapbox only if rate-limited).
 
 ### Caching (correctness-safe, see notes)
 - New file `detector/cache.py`: a local JSON (or SQLite) cache keyed by
@@ -185,38 +194,71 @@ Add optional `road_name: Optional[str]`, `road_class: Optional[str]`,
 
 ---
 
-## Stage 6 — AI reasoning triage (context-aware priority)
+## Stage 6 — AI reasoning triage (context + cost-of-delay economics)
 
 **Goal:** a low-volume, high-reasoning pass that adjusts the deterministic
-baseline using verified location context. Decision (b): the deterministic
-score is the BASE; the AI applies a context multiplier + written justification.
+baseline using verified location context AND the project's core value:
+minimizing total cost to the government via early intervention. Decision (b):
+the deterministic score is the BASE; the AI applies a context multiplier +
+written justification + an economic/urgency verdict.
 
 ### Model
 `gemini-2.5-flash` with thinking enabled (Pro is gated on this key). Few
 detections => one BATCH call over all of them is cheap and fast.
 
+### Cost-of-delay reasoning the model must perform
+Core principle: deferred maintenance compounds. The model weighs how fast THIS
+defect will worsen and what delay costs, using:
+- **Traffic exposure** (from road_class): freeway/arterial = high volume +
+  speed => faster deterioration, emergency-repair premium, congestion cost.
+  Residential = slower decay, cheaper to defer.
+- **Deterioration drivers** (from the image description): standing water,
+  surrounding cracking, edge raveling, depth/size => accelerants.
+- **Defect-type economics**: a crack is the cheap fix-now-save-later case; a
+  deep pothole is already costly. Preventive-maintenance math.
+- **Safety/liability** (from nearby_pois): a known hazard in a crosswalk near
+  a school/kindergarten carries injury + litigation cost if deferred.
+
+### Grounded cost model (DECISION B: no hallucinated dollars)
+New file `detector/cost_model.py` with CONFIGURABLE, clearly-labeled illustrative
+estimates (not authoritative):
+- `repair_now_cost(type, severity)` and a `deferred_cost(type, severity, road_class)`
+  that applies a deterioration multiplier (higher for freeway/arterial, for
+  potholes, and when water/cracking present).
+- `estimated_savings = deferred_cost - repair_now_cost`.
+The AI references these numbers; it must NOT invent its own figures.
+
 ### New file: `detector/triage.py`
 - Input: all detections incl. type/severity/description/`lat`/`lng`/
-  `road_name`/`road_class`/`nearby_pois`/deterministic `priority`.
-- The model receives location/context as FACTS (it must not infer location).
-- Output per detection: `priority_multiplier` (e.g. 0.5–2.0), `final_priority`
-  (= deterministic priority * multiplier), and `justification` (1–2 sentences
-  citing the context, e.g. "pothole within a crosswalk 20m from a school").
+  `road_name`/`road_class`/`nearby_pois`/deterministic `priority` + the
+  cost-model figures.
+- The model receives location/context/costs as FACTS (never infers them).
+- Output per detection:
+  - `priority_multiplier` (0.5–2.0) and `final_priority`
+    (= deterministic priority * multiplier)
+  - `deterioration_risk` (low | medium | high)
+  - `recommended_action` (fix_now | schedule_30d | monitor)
+  - `justification` (1–2 sentences citing context + economics, e.g. "Pothole on
+    a freeway with standing water will expand quickly under high-speed traffic;
+    fixing now (~$X) avoids a likely ~$Y emergency dig-out.")
 - Deterministic score is the fallback if the triage call fails (demo-safe).
 
 ### Schema extension
-Add optional `priority_multiplier: Optional[float]`,
-`final_priority: Optional[float]`, `justification: Optional[str]`.
-Map UI sorts by `final_priority` when present, else `priority`.
+Add optional `priority_multiplier`, `final_priority`, `deterioration_risk`,
+`recommended_action`, `justification`, `repair_now_cost`, `deferred_cost`,
+`estimated_savings` (all Optional). Map UI sorts by `final_priority` when
+present, else `priority`.
 
 ### Acceptance criteria
 - Hazards in sensitive contexts (crosswalk/school) rank above identical
   hazards on empty roads.
-- Every detection has a human-readable justification.
+- A freeway pothole with water ranks/urges higher than an identical
+  residential one, with cost-of-delay reasoning citing the cost-model figures.
+- Every detection has a justification + recommended_action + savings estimate.
 - Triage failure falls back cleanly to deterministic scores.
 
 ### Commit
-`feat: add context-aware AI reasoning triage for priority`
+`feat: add context + cost-of-delay AI reasoning triage`
 
 ---
 
