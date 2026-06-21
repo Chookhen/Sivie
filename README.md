@@ -1,10 +1,10 @@
-# Sivic — AI Road Integrity Operations
+# Sivie — AI Road Integrity Operations
 
 > Government-grade road-hazard intelligence: detect infrastructure defects from
 > vehicle footage, geolocate them on a live map, rank them by an explainable
 > priority score, and manage them as work orders in a persistent database.
 
-Sivic turns ordinary dashcam / phone video + a GPS track into a prioritized,
+Sivie turns ordinary dashcam / phone video + a GPS track into a prioritized,
 mapped, auditable hazard database. A computer-vision pipeline finds potholes,
 cracks, obscured signs, faded markings and debris; each detection is geolocated,
 enriched with the real street name, deduplicated across passes, and scored with a
@@ -17,7 +17,7 @@ map, an editable operations database, an analysis review board, and a one-click
 
 ## Quick start
 
-The fastest way to see Sivic running end-to-end — **mock mode, no API keys, no
+The fastest way to see Sivie running end-to-end — **mock mode, no API keys, no
 footage, ~3 minutes**. Copy-paste each block in order.
 
 **Prerequisites:** Python 3.9+, Node 18+, [`ffmpeg`](https://ffmpeg.org/) and `git`.

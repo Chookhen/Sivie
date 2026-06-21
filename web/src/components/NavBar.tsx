@@ -29,7 +29,7 @@ export default function NavBar({ page, onNavigate, status }: Props) {
           <Waypoints size={17} className="text-primary" />
         </div>
         <div className="leading-tight">
-          <div className="text-sm font-bold text-ink tracking-tight">Sivic</div>
+          <div className="text-sm font-bold text-ink tracking-tight">Sivie</div>
           <div className="text-[10px] uppercase tracking-[0.14em] text-faint">Road Integrity Operations</div>
         </div>
       </div>
