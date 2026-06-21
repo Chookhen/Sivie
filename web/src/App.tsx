@@ -1,89 +1,107 @@
-import { useState, useEffect } from 'react'
-import { Detection, DetectionReport, IssueType, PriorityLabel } from './types'
+import { useState, useEffect, useCallback } from 'react'
+import { DetectionReport, ModelDataset, Occurrence } from './types'
 import NavBar, { Page } from './components/NavBar'
 import MapView from './components/MapView'
-import Sidebar from './components/Sidebar'
 import AnalysisPage from './pages/AnalysisPage'
+import DatabasePage from './pages/DatabasePage'
+import ProcessingPage from './pages/ProcessingPage'
+import { fetchOccurrences } from './api'
 
 export default function App() {
   const [report, setReport] = useState<DetectionReport | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [selected, setSelected] = useState<Detection | null>(null)
-  const [filterPriority, setFilterPriority] = useState<PriorityLabel | 'ALL'>('ALL')
-  const [filterType, setFilterType] = useState<IssueType | 'ALL'>('ALL')
-  const [showHeatmap, setShowHeatmap] = useState(false)
+
+  const [occurrences, setOccurrences] = useState<Occurrence[]>([])
+  const [locationAvailable, setLocationAvailable] = useState(false)
+  const [occError, setOccError] = useState<string | null>(null)
+  const [backend, setBackend] = useState<string | undefined>(undefined)
+
+  const [selected, setSelected] = useState<Occurrence | null>(null)
   const [flyTo, setFlyTo] = useState<{ lat: number; lng: number; ts: number } | null>(null)
   const [page, setPage] = useState<Page>('map')
 
-  useEffect(() => {
-    fetch('/detections.json')
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
-      .then((data: DetectionReport) => { setReport(data); setLoading(false) })
-      .catch((e: Error) => { setError(e.message); setLoading(false) })
+  // Cache-busted so a freshly processed detections.json is always picked up.
+  const loadReport = useCallback(() => {
+    return fetch(`/detections.json?t=${Date.now()}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then((data: DetectionReport | null) => { setReport(data) })
+      .catch(() => { /* no detections yet */ })
   }, [])
 
-  const allDetections = report?.detections ?? []
+  const loadOccurrences = useCallback(() => {
+    return fetchOccurrences()
+      .then(db => {
+        setOccurrences(db.occurrences)
+        setLocationAvailable(db.location_available)
+        setBackend(db.backend)
+        setOccError(null)
+      })
+      .catch(() => setOccError(`Backend offline — start it with: uvicorn server.app:app --port 8000`))
+  }, [])
 
-  const filtered = allDetections.filter(d =>
-    (filterPriority === 'ALL' || d.priority_label === filterPriority) &&
-    (filterType === 'ALL' || d.type === filterType) &&
-    d.lat !== null && d.lng !== null,
-  )
+  useEffect(() => {
+    loadReport().finally(() => setLoading(false))
+  }, [loadReport])
 
-  function handleRowClick(d: Detection) {
-    setSelected(d)
-    if (d.lat !== null && d.lng !== null) {
-      setFlyTo({ lat: d.lat, lng: d.lng, ts: Date.now() })
+  // Refetch occurrences whenever we navigate, so DB edits reflect on the map.
+  useEffect(() => {
+    loadOccurrences()
+  }, [page, loadOccurrences])
+
+  const models: ModelDataset[] = [
+    {
+      key: 'standard',
+      label: 'YOLOv11-x',
+      sublabel: 'X-Large · AI triage',
+      detections: report?.detections ?? [],
+    },
+  ]
+
+  function handleSelect(o: Occurrence | null) {
+    setSelected(o)
+    if (o && o.lat != null && o.lng != null) {
+      setFlyTo({ lat: o.lat, lng: o.lng, ts: Date.now() })
     }
   }
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-900">
-        <div className="text-slate-300 text-lg animate-pulse">Loading detections…</div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-slate-900 flex-col gap-2">
-        <div className="text-red-400 text-lg font-semibold">Failed to load detections</div>
-        <div className="text-slate-400 text-sm">{error}</div>
+      <div className="flex h-screen items-center justify-center bg-canvas">
+        <div className="text-muted text-sm animate-pulse">Loading…</div>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-900">
-      <NavBar page={page} onNavigate={setPage} />
-      {page === 'map' ? (
-        <div className="flex flex-1 min-h-0 overflow-hidden">
-          <Sidebar
-            detections={filtered}
-            allDetections={allDetections}
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-canvas">
+      <NavBar
+        page={page}
+        onNavigate={setPage}
+        status={{ online: !occError, backend, count: occurrences.length }}
+      />
+      {page === 'map' && (
+        <div className="flex-1 relative min-h-0">
+          {occError && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 bg-panel-2 border border-line text-muted text-xs rounded-md px-3 py-1.5 shadow-pop">
+              {occError}
+            </div>
+          )}
+          <MapView
+            occurrences={occurrences}
+            locationAvailable={locationAvailable}
             selected={selected}
-            filterPriority={filterPriority}
-            filterType={filterType}
-            onFilterPriority={setFilterPriority}
-            onFilterType={setFilterType}
-            onSelect={handleRowClick}
-            showHeatmap={showHeatmap}
-            onToggleHeatmap={() => setShowHeatmap(v => !v)}
+            flyTo={flyTo}
+            onSelect={handleSelect}
           />
-          <div className="flex-1 relative min-w-0">
-            <MapView
-              detections={filtered}
-              selected={selected}
-              flyTo={flyTo}
-              showHeatmap={showHeatmap}
-              onSelect={setSelected}
-            />
-          </div>
         </div>
-      ) : (
-        <AnalysisPage detections={allDetections} />
+      )}
+      {page === 'database' && <DatabasePage />}
+      {page === 'analysis' && <AnalysisPage models={models} />}
+      {page === 'processing' && (
+        <ProcessingPage
+          onNavigate={setPage}
+          onProcessed={() => { loadReport(); loadOccurrences() }}
+        />
       )}
     </div>
   )

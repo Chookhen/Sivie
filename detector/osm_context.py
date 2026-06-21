@@ -91,6 +91,68 @@ def reverse_geocode(lat: float, lng: float) -> dict[str, Any]:
         return {"road_name": None, "road_class": None}
 
 
+_UNNAMED_LABEL: dict[str, str] = {
+    "footway": "Footpath",
+    "path": "Path",
+    "pedestrian": "Pedestrian way",
+    "service": "Service road",
+    "steps": "Steps",
+    "cycleway": "Cycleway",
+    "track": "Track",
+}
+
+
+def nearest_road(lat: float, lng: float, radius_m: int = 45) -> dict[str, Any] | None:
+    """Nearest OSM highway *way* by true geometry distance, including small
+    footways/paths/pedestrian ways/service roads.
+
+    Prefers the closest way that actually has a name (e.g. a campus path like
+    "Sather Road"); if nothing named is within ``radius_m``, returns a readable
+    label for the closest way's type. Returns None on failure or no roads.
+    """
+    _throttle_overpass()
+    query = (
+        f"[out:json][timeout:20];\n"
+        f"way(around:{radius_m},{lat},{lng})[highway];\n"
+        f"out geom tags;"
+    )
+    try:
+        resp = requests.post(
+            OVERPASS_URL,
+            data={"data": query},
+            headers={"User-Agent": USER_AGENT},
+            timeout=25,
+        )
+        resp.raise_for_status()
+        elements = resp.json().get("elements", [])
+    except Exception:  # noqa: BLE001
+        return None
+
+    best_named: tuple[float, str, str] | None = None
+    best_any: tuple[float, str] | None = None
+    for el in elements:
+        tags = el.get("tags", {})
+        hwy = tags.get("highway")
+        geom = el.get("geometry") or []
+        if not geom or not hwy:
+            continue
+        dmin = min(_haversine(lat, lng, p["lat"], p["lon"]) for p in geom)
+        if best_any is None or dmin < best_any[0]:
+            best_any = (dmin, hwy)
+        name = tags.get("name")
+        if name and (best_named is None or dmin < best_named[0]):
+            best_named = (dmin, name, hwy)
+
+    if best_named is not None:
+        return {"road_name": best_named[1], "road_class": best_named[2],
+                "dist_m": round(best_named[0], 1)}
+    if best_any is not None:
+        label = _UNNAMED_LABEL.get(best_any[1], best_any[1].replace("_", " ").title())
+        return {"road_name": label, "road_class": best_any[1],
+                "dist_m": round(best_any[0], 1)}
+    return None
+
+
 def nearby_pois(lat: float, lng: float, radius_m: int = 50) -> list[dict[str, Any]]:
     """Return POIs within radius_m of (lat, lng) from Overpass.
 
@@ -169,16 +231,22 @@ def enrich(report_dict: dict, use_cache: bool = True) -> dict:
             continue
 
         cached = _cache.get(lat, lng) if use_cache else None
-        if cached is not None:
+        if cached is not None and "nearest" in cached:
             geo = cached["geocode"]
             pois = cached["pois"]
+            near = cached["nearest"]
         else:
             geo = reverse_geocode(lat, lng)
             pois = nearby_pois(lat, lng)
+            near = nearest_road(lat, lng)
             if use_cache:
-                _cache.set(lat, lng, {"geocode": geo, "pois": pois})
+                _cache.set(lat, lng, {"geocode": geo, "pois": pois, "nearest": near})
 
-        det["road_name"] = geo.get("road_name")
+        # Prefer the nearest specific way (e.g. a named campus path) for the
+        # display name; fall back to Nominatim's road. road_class (used for the
+        # context/priority recompute below) still comes from Nominatim, so
+        # scoring behaviour is unchanged.
+        det["road_name"] = (near or {}).get("road_name") or geo.get("road_name")
         det["road_class"] = geo.get("road_class")
         det["nearby_pois"] = pois
 

@@ -1,118 +1,216 @@
-# road-hazard-detector
+# RoadWatch — AI Road Integrity Operations
 
-Detection engine for an AI road-condition mapping project: analyze dashcam
-frames from city/government vehicles, detect public-infrastructure hazards
-(potholes, cracks, obscured signs, faded markings, debris), score each by
-priority, and emit a structured JSON that downstream modules (GPS sync,
-map UI) consume.
+> Government-grade road-hazard intelligence: detect infrastructure defects from
+> vehicle footage, geolocate them on a live map, rank them by an explainable
+> priority score, and manage them as work orders in a persistent database.
 
-This is **stage 1** of the project: a standalone CLI. It deliberately keeps
-`frame` + `timestamp_offset_sec` on every detection so a later module can
-join detections to a GPS track by time.
+RoadWatch turns ordinary dashcam / phone video + a GPS track into a prioritized,
+mapped, auditable hazard database. A computer-vision pipeline finds potholes,
+cracks, obscured signs, faded markings and debris; each detection is geolocated,
+enriched with the real street name, deduplicated across passes, and scored with a
+**deterministic, explainable** priority formula (optionally adjusted by a Gemini
+vision model). A React operations console visualizes everything: a severity-colored
+map, an editable operations database, an analysis review board, and a one-click
+**Processing** page that runs the whole pipeline from the browser.
 
-## Setup
+---
+
+## Highlights
+
+- **End-to-end pipeline** — video → frames → detection → GPS sync → street
+  enrichment → dedupe/aggregation → priority scoring → JSON.
+- **Two detectors** — local **YOLOv11** (RDD2022 road-damage weights) or
+  **Gemini** vision; swap with one flag.
+- **Exact geolocation** — automatic video↔GPX time synchronization (with a
+  tunable offset) interpolates a lat/lng for every detection. Footage without a
+  track is stored with no coordinates and simply shows no map markers.
+- **Explainable priority** — a transparent Python formula (`severity × road_weight
+  × confidence`), optionally multiplied by a Gemini urgency assessment that
+  returns human-readable justifications.
+- **Street-level aggregation** — a persistent hazard DB deduplicates repeat
+  sightings and rolls hazards up per street, so chronically damaged roads rise in
+  priority.
+- **Operations console** — severity-colored Mapbox map (white 0–4, orange 4–7,
+  red 7–10), CRUD operations database, analysis review, and an in-browser
+  **Processing** page with live job logs.
+- **Pluggable storage** — Supabase Postgres when configured, local JSON otherwise.
+
+---
+
+## Architecture
+
+```
+                ┌─────────────────────────── detector/ (Python pipeline) ───────────────────────────┐
+  video/GPX ──▶ │ frame_extraction → yolo_client / vision_client → scoring                            │
+                │        │                                   │                                          │
+                │        └─▶ gps_sync (auto time-align) ─────┴─▶ osm_context (street name + POIs)       │
+                │                          │                                                            │
+                │              street_registry (persistent dedupe + per-street rollup)                  │
+                │                          │                                                            │
+                │              gemini_priority (optional urgency multiplier + justification)            │
+                └──────────────────────────┬─────────────────────────────────────────────────────────┘
+                                           ▼
+                              web/public/detections.json
+                                           │
+        ┌──────────────────────────────────┼───────────────────────────────────┐
+        ▼                                   ▼                                     ▼
+  server/ (FastAPI)                React console (web/)                  Processing page
+  CRUD occurrences DB     map · operations DB · analysis review     runs the pipeline as a
+  (Supabase | JSON)           (Mapbox GL + Tailwind)                background job w/ live log
+```
+
+---
+
+## Tech stack
+
+| Layer | Tech |
+|-------|------|
+| Detection | Ultralytics YOLOv11 (RDD2022), Google Gemini, OpenCV, PyTorch |
+| Pipeline | Python 3.9+, Pydantic, ffmpeg, gpxpy, OSM Overpass/Nominatim |
+| Backend | FastAPI, Uvicorn, Supabase (optional) |
+| Frontend | React + TypeScript, Vite, Tailwind CSS, Mapbox GL, Lucide |
+
+---
+
+## Project structure
+
+```
+road-hazard-detector/
+├── main.py                     # CLI entrypoint for the pipeline
+├── requirements.txt
+├── detector/                   # Computer-vision + scoring pipeline
+│   ├── pipeline.py             #   orchestration
+│   ├── frame_extraction.py     #   ffmpeg sampling + blur filtering
+│   ├── yolo_client.py          #   YOLOv11 road-damage detector
+│   ├── vision_client.py        #   Gemini vision detector + mock mode
+│   ├── gps_sync.py             #   video↔GPX auto time-sync + interpolation
+│   ├── osm_context.py          #   reverse-geocode street name + nearby POIs
+│   ├── street_registry.py      #   persistent hazard DB + per-street rollup
+│   ├── dedupe.py               #   cross-frame de-duplication
+│   ├── scoring.py              #   explainable priority formula
+│   ├── gemini_priority.py      #   optional AI urgency multiplier
+│   └── schema.py               #   Pydantic contracts
+├── server/                     # FastAPI operations backend
+│   ├── app.py                  #   occurrences CRUD + files/upload/process routes
+│   ├── jobs.py                 #   background pipeline job runner (live logs)
+│   ├── store.py                #   pluggable storage (Supabase | JSON)
+│   └── models.py
+└── web/                        # React + TypeScript operations console
+    └── src/
+        ├── App.tsx
+        ├── components/         # NavBar, MapView, Sidebar, StatsPanel
+        └── pages/              # DatabasePage, AnalysisPage, ProcessingPage
+```
+
+---
+
+## Getting started
+
+### 1. Pipeline + backend (Python)
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+brew install ffmpeg            # macOS (required for video input)
+
+cp .env.example .env           # then fill in keys (see below)
 ```
 
-`ffmpeg` must be installed for video input:
+`.env` keys (all optional for a mock run):
 
-```bash
-brew install ffmpeg   # macOS
+```
+GEMINI_API_KEY=...             # for Gemini detection / AI priority — aistudio.google.com/app/apikey
+SUPABASE_URL=...               # optional; falls back to local JSON storage
+SUPABASE_KEY=...
 ```
 
-Add your key (only needed for real, non-mock runs):
+Start the API:
 
 ```bash
-cp .env.example .env   # then edit .env and paste your GEMINI_API_KEY
+uvicorn server.app:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Get a key at https://aistudio.google.com/app/apikey
-
-## Usage
-
-Mock mode (no API key or footage needed — runs the full pipeline on the
-bundled placeholder frames):
+### 2. Frontend (React)
 
 ```bash
+cd web
+npm install
+# add web/.env with VITE_MAPBOX_TOKEN=pk.... for the map
+npm run dev                    # http://localhost:5173
+```
+
+---
+
+## Running the pipeline
+
+**From the browser (recommended):** open the **Processing** tab, pick a video and
+optional GPS track from the connected directory (or upload your own), set options
+(the GPS offset defaults to `-3s`), and click **Run pipeline**. The job streams its
+log live and refreshes the map + operations DB when it finishes.
+
+**From the CLI:**
+
+```bash
+# Mock run — no key or footage needed
 python main.py --input ./samples --mock
+
+# Real run with YOLO + GPS + street enrichment + AI priority
+python main.py \
+  --input test_images/berkeley.mp4 --gpx test_images/berkeley2.gpx \
+  --detector yolo --fps 1 --dedupe --enrich --ai-priority \
+  --time-offset -3 --save-frames-dir web/public/frames \
+  --output web/public/detections.json
 ```
 
-Real run on a video:
+Key flags: `--detector {yolo,gemini}`, `--fps`, `--max-frames`, `--gpx`,
+`--time-offset`, `--no-auto-sync`, `--dedupe`, `--enrich`, `--ai-priority`,
+`--mock`. Run `python main.py --help` for the full list.
 
-```bash
-python main.py --input drive.mov --fps 1 --output detections.json
-```
-
-Real run on a folder of frames, capped for cost while testing:
-
-```bash
-python main.py --input ./frames --max-frames 20
-```
-
-### Options
-
-| Flag | Default | Purpose |
-|------|---------|---------|
-| `--input` | (required) | Video file or image folder |
-| `--fps` | 1.0 | Frames/sec to extract (video only) |
-| `--output` | detections.json | Output path |
-| `--max-frames` | none | Cap frames (testing/cost) |
-| `--blur-threshold` | 100.0 | Skip frames below this Laplacian variance |
-| `--mock` | off | Fake detections, no API needed |
-| `--skip-blur-check` | off | Disable blur filter |
-
-## Output
-
-```json
-{
-  "source": "drive.mov",
-  "generated_at": "2026-...Z",
-  "frame_count": 120,
-  "detections": [
-    {
-      "frame": "frame_00007.jpg",
-      "timestamp_offset_sec": 7.0,
-      "type": "pothole",
-      "description": "...",
-      "severity": 4,
-      "confidence": 0.88,
-      "road_context": "arterial",
-      "priority": 7.04,
-      "priority_label": "HIGH"
-    }
-  ]
-}
-```
+---
 
 ## Priority scoring
 
-```
-priority = severity * road_weight * confidence
-road_weight = { freeway: 3.0, arterial: 2.0, residential: 1.0, unknown: 1.5 }
-label: >=10 CRITICAL, >=6 HIGH, >=3 MEDIUM, else LOW
-```
-
-Scoring is computed in Python (not by the model) so it is deterministic and
-explainable.
-
-## Next stages (not in this module)
-
-- **gps_sync**: join `timestamp_offset_sec` to a GPX track -> lat/lng.
-- **map UI**: React + Mapbox, color-coded priority pins + heatmap + work-order list.
-
-## Project layout
+The base priority is computed in Python (not by the model) so it is deterministic,
+auditable and explainable:
 
 ```
-detector/
-  schema.py            # pydantic contracts
-  frame_extraction.py  # ffmpeg + folder + blur check
-  vision_client.py     # Gemini 2.0 Flash + mock mode
-  scoring.py           # priority formula
-  pipeline.py          # orchestration
-main.py                # CLI
-samples/               # placeholder frames for --mock
+priority   = severity (1–5) × road_weight × confidence (0–1)
+road_weight= { freeway: 2.0, arterial: 1.5, residential: 1.0, unknown: 1.2 }
+label      = >=10 CRITICAL · >=6 HIGH · >=3 MEDIUM · else LOW
 ```
+
+When `--ai-priority` is enabled, Gemini reviews the annotated frame + context and
+returns an urgency **multiplier** (0.5–2.0) plus short justifications:
+
+```
+final_priority = priority × multiplier
+```
+
+The map colors markers by this score: white (0–4), orange (4–7), red (7–10).
+
+---
+
+## Backend API
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| `GET` | `/api/health` | Backend status + active storage type |
+| `GET` | `/api/occurrences` | List hazard occurrences |
+| `POST` | `/api/occurrences` | Create an occurrence |
+| `DELETE` | `/api/occurrences/{id}` | Delete an occurrence |
+| `POST` | `/api/reseed` | Rebuild the DB from `detections.json` |
+| `GET` | `/api/files` | List selectable video/GPS source files |
+| `POST` | `/api/upload` | Upload a video or GPS file |
+| `POST` | `/api/process` | Start a pipeline run (background job) |
+| `GET` | `/api/process/{id}` | Poll job status + stream log lines |
+
+---
+
+## Notes
+
+- Generated artifacts (`web/public/detections.json`, extracted `frames/`, uploads,
+  local DB caches) and secrets (`.env`) are git-ignored — clone the repo, add your
+  keys, and run the pipeline to populate data.
+- A full run over a multi-minute video takes several minutes; use `--max-frames`
+  (or the Processing page's options) for a fast demo.

@@ -10,10 +10,10 @@ from __future__ import annotations
 from .schema import PriorityLabel, RawIssue, RoadContext
 
 ROAD_WEIGHT = {
-    RoadContext.FREEWAY: 3.0,
-    RoadContext.ARTERIAL: 2.0,
+    RoadContext.FREEWAY: 2.0,
+    RoadContext.ARTERIAL: 1.5,
     RoadContext.RESIDENTIAL: 1.0,
-    RoadContext.UNKNOWN: 1.5,
+    RoadContext.UNKNOWN: 1.2,
 }
 
 

@@ -14,3 +14,9 @@ web/dist/
 test_images/
 real_test.json
 .osm_cache.json
+hazard_db.json
+web/public/detections*.json
+data/occurrences.json
+# Generated pipeline artifacts (extracted frames + uploaded source files)
+web/public/frames/
+data/uploads/

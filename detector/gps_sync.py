@@ -90,16 +90,110 @@ def apply_gps(
     return report_dict
 
 
+def _parse_dt(val: str) -> "datetime | None":
+    """Parse an ISO-8601 timestamp into an aware UTC-comparable datetime."""
+    val = (val or "").strip()
+    if not val:
+        return None
+    if val.endswith("Z"):
+        val = val[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(val)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def get_video_start_time(path: str) -> "datetime | None":
+    """Best-effort absolute start time of a video from its container metadata.
+
+    iPhone .mov files carry a UTC ``creation_time`` (and a local-tz
+    ``com.apple.quicktime.creationdate``); either resolves to the same instant.
+    Returns None for image folders or files without timestamps.
+    """
+    try:
+        import ffmpeg  # type: ignore[import]
+
+        meta = ffmpeg.probe(path)
+    except Exception:
+        return None
+    fmt_tags = (meta.get("format", {}) or {}).get("tags", {}) or {}
+    for key in ("creation_time", "com.apple.quicktime.creationdate"):
+        dt = _parse_dt(fmt_tags.get(key, ""))
+        if dt:
+            return dt
+    for stream in meta.get("streams", []) or []:
+        dt = _parse_dt((stream.get("tags") or {}).get("creation_time", ""))
+        if dt:
+            return dt
+    return None
+
+
+def get_track_origin_time(path: str) -> "datetime | None":
+    """Absolute timestamp of the first point in a GPX/CSV track, if present."""
+    if path.endswith(".gpx"):
+        import gpxpy  # type: ignore[import]
+
+        with open(path, encoding="utf-8") as fh:
+            gpx = gpxpy.parse(fh)
+        times = [
+            p.time
+            for track in gpx.tracks
+            for seg in track.segments
+            for p in seg.points
+            if p.time is not None
+        ]
+        return min(times) if times else None
+    times_csv: list[datetime] = []
+    with open(path, newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            ts_raw = row["timestamp"].strip()
+            try:
+                times_csv.append(datetime.fromtimestamp(float(ts_raw), tz=timezone.utc))
+            except ValueError:
+                dt = _parse_dt(ts_raw)
+                if dt:
+                    times_csv.append(dt)
+    return min(times_csv) if times_csv else None
+
+
+def auto_time_offset(video_path: str, track_path: str) -> "float | None":
+    """Seconds to add to a video-relative time to land on the track timeline.
+
+    offset = (video_start - track_origin); feed it as ``time_offset`` to
+    ``apply_gps``. Returns None when either timestamp is unavailable.
+    """
+    vstart = get_video_start_time(video_path)
+    torigin = get_track_origin_time(track_path)
+    if vstart is None or torigin is None:
+        return None
+    return (vstart - torigin).total_seconds()
+
+
 def generate_mock_track(
-    num_points: int = 120,
+    duration_sec: float = 120.0,
     start_lat: float = 37.8716,
     start_lng: float = -122.2727,
     spacing_sec: float = 1.0,
 ) -> list[TrackPoint]:
+    """Synthetic dashcam route around Berkeley, covering the full duration.
+
+    Produces a gently wandering path (slow heading changes) so detections
+    spread across a neighborhood instead of piling on a single point or
+    drifting off in a straight line. Deterministic.
+    """
+    import math
+
+    n = max(2, int(duration_sec / spacing_sec) + 1)
     points: list[TrackPoint] = []
     lat, lng = start_lat, start_lng
-    for i in range(num_points):
+    heading = 0.0
+    step = 0.00010  # ~11 m per step ≈ 40 km/h at 1 s spacing
+    for i in range(n):
         points.append(TrackPoint(time_offset_sec=i * spacing_sec, lat=lat, lng=lng))
-        lat += 0.0003
-        lng += 0.0001
+        heading += math.sin(i * 0.04) * 0.25  # gentle turns
+        lat += step * math.cos(heading)
+        lng += step * math.sin(heading) / math.cos(math.radians(lat))
     return points

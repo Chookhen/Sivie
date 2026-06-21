@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
-import { ImageOff, MapPin, AlertCircle, X, Brain } from 'lucide-react'
-import { Detection, IssueType, PriorityLabel } from '../types'
+import { ImageOff, MapPin, AlertCircle, X, Brain, Cpu } from 'lucide-react'
+import { Detection, IssueType, ModelDataset, PriorityLabel } from '../types'
 
 const PRIORITY_COLOR: Record<string, string> = {
   CRITICAL: '#ef4444',
@@ -33,11 +33,11 @@ function FrameImage({
   const [imgErr, setImgErr] = useState(false)
 
   const wrapCls = fill ? 'relative w-full h-full' : 'relative w-full'
-  const imgCls  = fill ? 'w-full h-full object-cover bg-slate-700' : 'w-full h-auto block bg-slate-900'
+  const imgCls  = fill ? 'w-full h-full object-cover bg-panel-3' : 'w-full h-auto block bg-canvas'
 
   if (!src || imgErr) {
     return (
-      <div className={`${wrapCls} flex flex-col items-center justify-center gap-1.5 text-slate-600 bg-slate-700`}>
+      <div className={`${wrapCls} flex flex-col items-center justify-center gap-1.5 text-faint bg-panel-3`}>
         <ImageOff size={28} />
         <span className="text-xs">No image</span>
       </div>
@@ -103,10 +103,10 @@ function FrameCard({ group, onClick }: { group: FrameGroup; onClick: () => void 
   return (
     <button
       onClick={onClick}
-      className="bg-slate-800 rounded-lg overflow-hidden border border-slate-700 hover:border-slate-500 transition-all text-left w-full hover:shadow-lg hover:shadow-black/30"
+      className="card overflow-hidden hover:border-primary/40 transition-colors text-left w-full"
       style={{ borderLeftColor: color, borderLeftWidth: 3 }}
     >
-      <div className="relative h-44 bg-slate-700 overflow-hidden">
+      <div className="relative h-44 bg-panel-3 overflow-hidden">
         <FrameImage
           src={group.image_url}
           alt={group.frame}
@@ -119,7 +119,7 @@ function FrameCard({ group, onClick }: { group: FrameGroup; onClick: () => void 
           {group.max_priority_label}
         </div>
         {group.detections.length > 1 && (
-          <div className="absolute bottom-2 left-2 z-10 text-xs px-2 py-0.5 rounded bg-black/60 text-slate-300">
+          <div className="absolute bottom-2 left-2 z-10 text-xs px-2 py-0.5 rounded bg-canvas/80 text-muted border border-line">
             {group.detections.length} issues
           </div>
         )}
@@ -127,7 +127,7 @@ function FrameCard({ group, onClick }: { group: FrameGroup; onClick: () => void 
 
       <div className="p-3">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-mono text-slate-400 truncate">{group.frame}</span>
+          <span className="text-xs font-mono text-faint truncate">{group.frame}</span>
           <span className="text-xs tabular-nums shrink-0 ml-2" style={{ color }}>
             {group.max_priority.toFixed(1)}
           </span>
@@ -137,27 +137,27 @@ function FrameCard({ group, onClick }: { group: FrameGroup; onClick: () => void 
           {group.detections.slice(0, 3).map((d, i) => (
             <div key={i} className="flex items-center gap-2 text-xs">
               <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: PRIORITY_COLOR[d.priority_label] }} />
-              <span className="capitalize text-slate-200">{d.type.replace(/_/g, ' ')}</span>
-              <span className="text-slate-500 ml-auto">sev {d.severity} · {Math.round(d.confidence * 100)}%</span>
+              <span className="capitalize text-ink">{d.type.replace(/_/g, ' ')}</span>
+              <span className="text-faint ml-auto">sev {d.severity} · {Math.round(d.confidence * 100)}%</span>
             </div>
           ))}
           {group.detections.length > 3 && (
-            <div className="text-xs text-slate-600">+{group.detections.length - 3} more</div>
+            <div className="text-xs text-faint">+{group.detections.length - 3} more</div>
           )}
         </div>
 
         {d0.lat != null && (
-          <div className="flex items-center gap-1 text-xs text-slate-500 mt-1.5">
-            <MapPin size={10} className="shrink-0" />
-            <span className="truncate">
+          <div className="flex items-center gap-1 text-xs text-muted mt-1.5">
+            <MapPin size={10} className="shrink-0 text-faint" />
+            <span className="truncate tabular-nums">
               {d0.lat.toFixed(4)}, {d0.lng?.toFixed(4)}
-              {d0.road_name && <span className="text-slate-400"> · {d0.road_name}</span>}
+              {d0.road_name && <span className="text-ink"> · {d0.road_name}</span>}
             </span>
           </div>
         )}
 
-        {d0.justification && (
-          <p className="text-xs text-slate-500 mt-2 line-clamp-2 italic">"{d0.justification}"</p>
+        {d0.justification && d0.justification.length > 0 && (
+          <p className="text-xs text-muted mt-2 line-clamp-2 italic">{d0.justification[0]}</p>
         )}
       </div>
     </button>
@@ -171,7 +171,7 @@ function DetectionDetail({ d, active = false }: { d: Detection; active?: boolean
       className="border rounded-lg p-3 space-y-2 transition-colors"
       style={active
         ? { borderColor: `${color}77`, background: `${color}11` }
-        : { borderColor: '#334155' }}
+        : { borderColor: '#2b3a57' }}
     >
       <div className="flex items-center gap-2 flex-wrap">
         <span
@@ -180,50 +180,72 @@ function DetectionDetail({ d, active = false }: { d: Detection; active?: boolean
         >
           {d.priority_label}
         </span>
-        <span className="font-medium text-sm capitalize text-slate-100">
+        <span className="font-medium text-sm capitalize text-ink">
           {d.type.replace(/_/g, ' ')}
         </span>
-        <span className="text-xs text-slate-500 ml-auto">score {d.priority.toFixed(2)}</span>
+        <span className="text-xs ml-auto" style={{ color }}>
+          {d.final_priority != null ? (
+            <span className="font-bold tabular-nums">
+              {d.final_priority.toFixed(1)}
+              <span className="text-faint font-normal"> (base {d.priority.toFixed(1)})</span>
+            </span>
+          ) : (
+            <span className="text-faint">score {d.priority.toFixed(2)}</span>
+          )}
+        </span>
       </div>
 
       {d.description && (
-        <p className="text-xs text-slate-400">{d.description}</p>
+        <p className="text-xs text-muted">{d.description}</p>
       )}
 
-      <div className="flex flex-wrap gap-3 text-xs text-slate-500">
+      <div className="flex flex-wrap gap-3 text-xs text-faint">
         <span>Severity {d.severity}/5</span>
         <span>Confidence {Math.round(d.confidence * 100)}%</span>
         <span className="capitalize">{d.road_context}</span>
       </div>
 
       {d.lat != null && (
-        <div className="flex items-start gap-1 text-xs text-slate-500">
-          <MapPin size={10} className="mt-0.5 shrink-0" />
-          <span>
+        <div className="flex items-start gap-1 text-xs text-muted">
+          <MapPin size={10} className="mt-0.5 shrink-0 text-faint" />
+          <span className="tabular-nums">
             {d.lat.toFixed(5)}, {d.lng?.toFixed(5)}
-            {d.road_name && <span className="text-slate-400"> · {d.road_name}</span>}
-            {d.road_class && <span className="text-slate-600"> ({d.road_class})</span>}
+            {d.road_name && <span className="text-ink"> · {d.road_name}</span>}
+            {d.road_class && <span className="text-faint"> ({d.road_class})</span>}
           </span>
         </div>
       )}
 
       {d.nearby_pois && d.nearby_pois.length > 0 && (
-        <div className="text-xs text-slate-500">
+        <div className="text-xs text-faint">
           Nearby: {d.nearby_pois.map(p => `${p.name ?? p.category} (${p.distance_m}m)`).join(' · ')}
         </div>
       )}
 
-      {(d.priority_multiplier != null || d.final_priority != null) && (
-        <div className="text-xs text-slate-400 flex gap-3 flex-wrap">
-          {d.priority_multiplier != null && <span>AI multiplier ×{d.priority_multiplier}</span>}
-          {d.final_priority != null && <span>Final priority {d.final_priority.toFixed(2)}</span>}
+      {d.street_hazard_count != null && (
+        <div className="text-xs text-faint flex gap-3 flex-wrap">
+          <span>Street: {d.street_hazard_count} hazard{d.street_hazard_count !== 1 ? 's' : ''}</span>
+          {d.street_pothole_count != null && <span>{d.street_pothole_count} pothole{d.street_pothole_count !== 1 ? 's' : ''}</span>}
+          {d.street_crack_count != null && <span>{d.street_crack_count} crack{d.street_crack_count !== 1 ? 's' : ''}</span>}
+          {d.street_weight != null && <span className="text-amber-400/80">street weight ×{d.street_weight}</span>}
+          {d.times_seen != null && d.times_seen > 1 && <span>seen {d.times_seen}×</span>}
         </div>
       )}
 
-      {d.justification && (
-        <div className="flex gap-2 text-xs bg-slate-900/60 rounded p-2.5">
-          <Brain size={12} className="text-blue-400 shrink-0 mt-0.5" />
-          <span className="text-slate-300 italic">"{d.justification}"</span>
+      {d.justification && d.justification.length > 0 && (
+        <div className="flex gap-2 text-xs bg-canvas border border-line rounded-md p-2.5">
+          <Brain size={12} className="text-primary shrink-0 mt-0.5" />
+          <div className="text-muted space-y-1">
+            <div className="text-[10px] uppercase tracking-wider text-primary font-semibold flex items-center gap-1.5">
+              AI urgency assessment
+              {d.priority_multiplier != null && (
+                <span className="text-faint normal-case font-normal">· ×{d.priority_multiplier}</span>
+              )}
+            </div>
+            <ul className="list-disc list-inside space-y-0.5">
+              {d.justification.map((r, i) => <li key={i}>{r}</li>)}
+            </ul>
+          </div>
         </div>
       )}
     </div>
@@ -242,12 +264,12 @@ function DetailModal({ group, onClose }: { group: FrameGroup; onClose: () => voi
       onClick={onClose}
     >
       <div
-        className="bg-slate-800 rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl"
+        className="bg-panel-2 rounded-card w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-pop border border-line"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700 sticky top-0 bg-slate-800 rounded-t-xl z-10">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-line sticky top-0 bg-panel-2 rounded-t-card z-10">
           <div className="flex items-center gap-3">
-            <span className="font-mono text-sm text-slate-300">{group.frame}</span>
+            <span className="font-mono text-sm text-ink">{group.frame}</span>
             <span
               className="text-xs font-bold px-2 py-0.5 rounded"
               style={{ color, background: `${color}22`, border: `1px solid ${color}44` }}
@@ -255,12 +277,12 @@ function DetailModal({ group, onClose }: { group: FrameGroup; onClose: () => voi
               {group.max_priority_label} · {group.max_priority.toFixed(1)}
             </span>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-700">
+          <button onClick={onClose} className="text-muted hover:text-ink p-1 rounded hover:bg-panel-3">
             <X size={18} />
           </button>
         </div>
 
-        <div className="bg-slate-900 overflow-hidden">
+        <div className="bg-canvas overflow-hidden">
           <FrameImage
             src={group.image_url}
             alt={group.frame}
@@ -272,10 +294,10 @@ function DetailModal({ group, onClose }: { group: FrameGroup; onClose: () => voi
         </div>
 
         <div className="p-4 space-y-3">
-          <div className="text-xs text-slate-500 uppercase tracking-wider">
+          <div className="text-xs text-faint uppercase tracking-wider">
             {group.detections.length} Detection{group.detections.length !== 1 ? 's' : ''}
             {group.detections.some(d => d.box_2d) && (
-              <span className="ml-2 normal-case text-slate-600">· click a row to highlight its box</span>
+              <span className="ml-2 normal-case text-faint">· click a row to highlight its box</span>
             )}
           </div>
           {group.detections.map((d, i) => (
@@ -294,13 +316,17 @@ function DetailModal({ group, onClose }: { group: FrameGroup; onClose: () => voi
 }
 
 interface Props {
-  detections: Detection[]
+  models: ModelDataset[]
 }
 
-export default function AnalysisPage({ detections }: Props) {
+export default function AnalysisPage({ models }: Props) {
+  const [activeKey, setActiveKey] = useState(models[0]?.key ?? 'standard')
   const [filterPriority, setFilterPriority] = useState<PriorityLabel | 'ALL'>('ALL')
   const [filterType, setFilterType] = useState<IssueType | 'ALL'>('ALL')
   const [selected, setSelected] = useState<FrameGroup | null>(null)
+
+  const active = models.find(m => m.key === activeKey) ?? models[0]
+  const detections = active?.detections ?? []
 
   const frameGroups = useMemo((): FrameGroup[] => {
     const map = new Map<string, Detection[]>()
@@ -329,14 +355,43 @@ export default function AnalysisPage({ detections }: Props) {
     ), [frameGroups, filterPriority, filterType])
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-slate-900">
-      <div className="px-6 py-2.5 border-b border-slate-700 flex items-center gap-3 shrink-0 flex-wrap">
-        <span className="text-xs text-slate-500">
+    <div className="flex flex-col flex-1 min-h-0 bg-canvas">
+      {models.length > 1 && (
+        <div className="px-6 pt-3 pb-0 border-b border-line flex items-end gap-2 shrink-0 bg-panel">
+          {models.map(m => {
+            const isActive = m.key === active?.key
+            return (
+              <button
+                key={m.key}
+                onClick={() => setActiveKey(m.key)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-xs font-medium border-x border-t transition-colors -mb-px ${
+                  isActive
+                    ? 'bg-panel text-ink border-line'
+                    : 'bg-transparent text-muted border-transparent hover:text-ink hover:bg-panel-3'
+                }`}
+              >
+                <Cpu size={13} className={isActive ? 'text-primary' : 'text-faint'} />
+                <span className="font-semibold">{m.label}</span>
+                <span className="text-faint normal-case">{m.sublabel}</span>
+                <span
+                  className={`ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold tabular-nums ${
+                    isActive ? 'bg-primary/15 text-primary' : 'bg-panel-3 text-muted'
+                  }`}
+                >
+                  {m.detections.length}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+      <div className="px-6 py-2.5 border-b border-line flex items-center gap-3 shrink-0 flex-wrap">
+        <span className="text-xs text-muted">
           {filtered.length} frame{filtered.length !== 1 ? 's' : ''} · {detections.length} total detections
         </span>
         <div className="flex gap-2 ml-auto">
           <select
-            className="bg-slate-800 text-slate-200 text-xs rounded-md px-3 py-1.5 border border-slate-700 focus:outline-none focus:border-blue-500"
+            className="select text-xs"
             value={filterPriority}
             onChange={e => setFilterPriority(e.target.value as PriorityLabel | 'ALL')}
           >
@@ -344,7 +399,7 @@ export default function AnalysisPage({ detections }: Props) {
             {PRIORITY_LABELS.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
           <select
-            className="bg-slate-800 text-slate-200 text-xs rounded-md px-3 py-1.5 border border-slate-700 focus:outline-none focus:border-blue-500"
+            className="select text-xs"
             value={filterType}
             onChange={e => setFilterType(e.target.value as IssueType | 'ALL')}
           >
@@ -356,13 +411,13 @@ export default function AnalysisPage({ detections }: Props) {
 
       <div className="flex-1 overflow-y-auto p-5">
         {detections.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-slate-600 gap-2">
+          <div className="flex flex-col items-center justify-center h-64 text-faint gap-2">
             <AlertCircle size={32} />
             <p className="text-sm">No detections loaded</p>
             <p className="text-xs">Run the pipeline with --save-frames-dir to populate this page</p>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex items-center justify-center h-64 text-slate-600 text-sm">
+          <div className="flex items-center justify-center h-64 text-faint text-sm">
             No frames match the current filters
           </div>
         ) : (

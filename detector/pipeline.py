@@ -11,6 +11,7 @@ from .frame_extraction import Frame, get_frames, is_too_blurry
 from .schema import Detection, DetectionReport
 from .scoring import compute_priority, priority_label
 from .vision_client import VisionClient
+from .yolo_client import YoloClient
 
 
 def run_pipeline(
@@ -22,6 +23,9 @@ def run_pipeline(
     skip_blur_check: bool = False,
     save_frames_dir: Optional[str] = None,
     request_delay_sec: float = 0.0,
+    min_confidence: float = 0.0,
+    detector: str = "yolo",
+    yolo_conf: float = 0.25,
 ) -> DetectionReport:
     frames: List[Frame] = get_frames(input_path, fps)
     if max_frames is not None:
@@ -32,11 +36,16 @@ def run_pipeline(
     if save_frames_dir:
         os.makedirs(save_frames_dir, exist_ok=True)
 
-    client = VisionClient(mock=mock)
+    if detector == "gemini":
+        client = VisionClient(mock=mock)
+    else:
+        client = YoloClient(mock=mock, conf=yolo_conf)
+    print(f"[pipeline] detector={detector}{' (mock)' if mock else ''}")
     report = DetectionReport(source=input_path, frame_count=len(frames))
 
     skipped_blur = 0
     failed = 0
+    skipped_lowconf = 0
 
     for i, frame in enumerate(frames, start=1):
         if not skip_blur_check and not mock and is_too_blurry(frame.path, blur_threshold):
@@ -60,6 +69,9 @@ def run_pipeline(
                 pass
 
         for issue in vision.issues:
+            if issue.confidence < min_confidence:
+                skipped_lowconf += 1
+                continue
             priority = compute_priority(issue)
             report.detections.append(
                 Detection(
@@ -78,6 +90,6 @@ def run_pipeline(
 
     print(
         f"[pipeline] done. detections={len(report.detections)} "
-        f"blurry_skipped={skipped_blur} failed={failed}"
+        f"blurry_skipped={skipped_blur} lowconf_skipped={skipped_lowconf} failed={failed}"
     )
     return report

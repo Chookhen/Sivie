@@ -23,10 +23,41 @@ from .schema import VisionResponse
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 INSTRUCTION = """You are a municipal road-infrastructure inspector reviewing a
-single dashcam frame captured from a city vehicle.
+single dashcam frame from a city vehicle. Your job is ACCURATE assessment, not
+finding problems.
 
-Identify visible public-infrastructure hazards. Allowed issue types:
-pothole, crack, obscured_sign, faded_marking, debris, other.
+Most frames show roads in normal, serviceable condition. For such frames the
+correct answer is an empty list. Do NOT feel obligated to report anything:
+reporting a defect that is not clearly present is a serious error. Prefer a
+false negative over a false positive — it is better to miss a marginal defect
+than to invent one.
+
+Report ONLY clear, safety-relevant defects you can directly see in THIS image.
+Never infer, assume, or guess. Allowed issue types and the bar for each:
+
+- pothole: an actual hole or cavity in the road surface. Not a shadow, patch,
+  manhole cover, or stain.
+- crack: SIGNIFICANT pavement cracking — alligator/network cracking, wide or
+  open cracks, or clearly deteriorating surface. NOT hairline cracks, expansion
+  joints, or normal surface texture. CRITICAL: a crack that has been filled or
+  sealed (a line of black tar/sealant, or a different-colored filler tracing the
+  crack shape) is ALREADY REPAIRED — do NOT report it; it is not an active
+  defect.
+- obscured_sign: ONLY a regulatory or warning sign (stop, yield, speed limit,
+  do-not-enter, one-way, school/pedestrian/curve warning) so obscured that a
+  driver could miss critical safety information. EXCLUDE street-name signs,
+  parking/permit signs, business/information signs, and any sign that is merely
+  near foliage or only slightly overlapped.
+- faded_marking: lane lines, crosswalks, or stop bars worn enough to materially
+  reduce visibility. NOT lightly weathered paint.
+- debris: an object in the travel lane that poses a hazard.
+- other: a clear safety hazard not covered above.
+
+LOCATION RULE: pothole, crack, and faded_marking are ROAD-SURFACE defects and
+can ONLY appear on the paved road, which is the lower portion of the frame.
+NEVER report them in the sky, on buildings, trees, poles, wires, vehicles, or
+anywhere above the road surface. If a candidate is not clearly on the pavement,
+do not report it.
 
 For road_context, infer from visual cues (lane count, speed-limit signs,
 sidewalks, buildings, medians):
@@ -35,17 +66,23 @@ sidewalks, buildings, medians):
 - residential: local street, houses, low speed
 - unknown: cannot tell
 
-Rate severity 1-5 (1=cosmetic, 5=immediate safety hazard) and confidence
-0.0-1.0. Be conservative with confidence.
+Rate severity 1-5 (1=cosmetic, 5=immediate safety hazard). Set confidence
+0.0-1.0 to reflect your genuine visual certainty that the defect is real and
+matches its category; do not inflate it. Only report issues you are genuinely
+confident about.
 
-For each issue, include box_2d: [ymin, xmin, ymax, xmax] normalized 0-1000,
-tightly bounding the defect. If the defect cannot be precisely localized,
-set box_2d to null.
+For each issue, include box_2d: [ymin, xmin, ymax, xmax] normalized 0-1000.
+The box must be TIGHT: the smallest rectangle that contains the actual defect,
+NOT the general road area. For a defect spread over an area (e.g. cracking), box
+the single worst, most concentrated patch, not the whole road. The box must
+contain ONLY the defect itself — never include sky, buildings, sidewalks,
+vehicles, or large stretches of intact pavement. If it cannot be precisely
+localized, set box_2d to null.
 
 Return ONLY valid JSON, no markdown, matching exactly:
 {"issues": [{"type": "...", "description": "...", "severity": 1-5,
 "confidence": 0.0-1.0, "road_context": "...", "box_2d": [ymin, xmin, ymax, xmax]}]}
-If no issues are visible, return {"issues": []}.
+If no clear defects are visible, return {"issues": []}.
 """
 
 _MOCK_TYPES = ["pothole", "crack", "obscured_sign", "faded_marking", "debris"]
@@ -86,7 +123,7 @@ def mock_response(seed_key: str) -> VisionResponse:
 
 class VisionClient:
     def __init__(self, mock: bool = False, api_key: Optional[str] = None,
-                 temperature: float = 0.2):
+                 temperature: float = 0.0):
         self.mock = mock
         self.temperature = temperature
         self._model = None
@@ -103,8 +140,6 @@ class VisionClient:
                 "temperature": temperature,
                 "response_mime_type": "application/json",
             }
-            if hasattr(genai, "types") and hasattr(genai.types, "ThinkingConfig"):
-                gen_cfg["thinking_config"] = {"thinking_budget": 0}
             self._model = genai.GenerativeModel(
                 MODEL_NAME,
                 system_instruction=INSTRUCTION,

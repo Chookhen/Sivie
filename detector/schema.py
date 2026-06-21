@@ -78,6 +78,17 @@ class Detection(RawIssue):
     road_context_vision: Optional[str] = None
     nearby_pois: List[POI] = Field(default_factory=list)
     duplicate_count: Optional[int] = None
+    # Gemini 2.5 Pro urgency evaluation (clickable in the UI).
+    priority_multiplier: Optional[float] = None
+    final_priority: Optional[float] = None
+    justification: Optional[List[str]] = None
+    # Street-level aggregation from the persistent hazard database.
+    street_hazard_count: Optional[int] = None
+    street_pothole_count: Optional[int] = None
+    street_crack_count: Optional[int] = None
+    street_weight: Optional[float] = None
+    hazard_id: Optional[str] = None
+    times_seen: Optional[int] = None
 
 
 class DetectionReport(BaseModel):
@@ -88,4 +99,5 @@ class DetectionReport(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     frame_count: int = 0
+    gps_source: Optional[str] = None  # "gpx" | "synthetic" | "none"
     detections: List[Detection] = Field(default_factory=list)
