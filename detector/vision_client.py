@@ -1,6 +1,8 @@
 """Gemini vision client.
 
-Sends a frame to Gemini 2.0 Flash and returns a validated VisionResponse.
+Sends a frame to Gemini (model set by MODEL_NAME) and returns a validated
+VisionResponse. Images are sent as inline bytes (the File API rejects some
+key formats), which is also faster and avoids upload quota.
 Includes a deterministic-ish `mock` mode so the full pipeline runs end to
 end with no API key or footage (useful for building/testing the UI and the
 scoring, and as a demo-day safety net).
