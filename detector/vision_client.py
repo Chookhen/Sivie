@@ -9,6 +9,7 @@ scoring, and as a demo-day safety net).
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import random
 import re
@@ -18,7 +19,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from .schema import VisionResponse
 
-MODEL_NAME = "gemini-2.0-flash"
+MODEL_NAME = "gemini-2.5-flash"
 
 INSTRUCTION = """You are a municipal road-infrastructure inspector reviewing a
 single dashcam frame captured from a city vehicle.
@@ -104,10 +105,11 @@ class VisionClient:
 
     @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=8))
     def _analyze_real(self, image_path: str) -> VisionResponse:
-        import google.generativeai as genai
-
-        uploaded = genai.upload_file(image_path)
-        resp = self._model.generate_content([uploaded, "Analyze this frame."])
+        with open(image_path, "rb") as fh:
+            data = fh.read()
+        mime_type = mimetypes.guess_type(image_path)[0] or "image/jpeg"
+        resp = self._model.generate_content(
+            [{"mime_type": mime_type, "data": data}, "Analyze this frame."]
+        )
         raw = _strip_code_fences(resp.text or "{}")
-        data = json.loads(raw)
-        return VisionResponse.model_validate(data)
+        return VisionResponse.model_validate(json.loads(raw))

@@ -11,3 +11,5 @@ detections.json
 web/.env
 web/node_modules/
 web/dist/
+test_images/
+real_test.json
