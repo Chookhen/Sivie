@@ -38,6 +38,7 @@ _ROAD_CLASS_TO_CONTEXT: dict[str, RoadContext] = {
 }
 
 _last_nominatim: float = 0.0
+_last_overpass: float = 0.0
 
 
 def _haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -55,6 +56,14 @@ def _throttle_nominatim() -> None:
     if elapsed < 1.0:
         time.sleep(1.0 - elapsed)
     _last_nominatim = time.monotonic()
+
+
+def _throttle_overpass() -> None:
+    global _last_overpass
+    elapsed = time.monotonic() - _last_overpass
+    if elapsed < 1.0:
+        time.sleep(1.0 - elapsed)
+    _last_overpass = time.monotonic()
 
 
 def reverse_geocode(lat: float, lng: float) -> dict[str, Any]:
@@ -83,7 +92,11 @@ def reverse_geocode(lat: float, lng: float) -> dict[str, Any]:
 
 
 def nearby_pois(lat: float, lng: float, radius_m: int = 50) -> list[dict[str, Any]]:
-    """Return POIs within radius_m of (lat, lng) from Overpass. Failure -> []."""
+    """Return POIs within radius_m of (lat, lng) from Overpass.
+
+    Genuine empty result -> []. Persistent failure -> [] with a logged warning.
+    """
+    _throttle_overpass()
     query = (
         f"[out:json][timeout:15];\n"
         f"(\n"
@@ -97,30 +110,47 @@ def nearby_pois(lat: float, lng: float, radius_m: int = 50) -> list[dict[str, An
         f");\n"
         f"out center;"
     )
-    try:
-        resp = requests.post(
-            OVERPASS_URL,
-            data={"data": query},
-            headers={"User-Agent": USER_AGENT},
-            timeout=20,
-        )
-        resp.raise_for_status()
-        pois: list[dict[str, Any]] = []
-        for el in resp.json().get("elements", []):
-            tags = el.get("tags", {})
-            el_lat = el.get("lat") or el.get("center", {}).get("lat")
-            el_lng = el.get("lon") or el.get("center", {}).get("lon")
-            if el_lat is None or el_lng is None:
-                continue
-            category = tags.get("amenity") or tags.get("highway") or "unknown"
-            pois.append({
-                "name": tags.get("name"),
-                "category": category,
-                "distance_m": round(_haversine(lat, lng, el_lat, el_lng), 1),
-            })
-        return sorted(pois, key=lambda p: p["distance_m"])
-    except Exception:  # noqa: BLE001
-        return []
+    for attempt in range(1, 4):
+        try:
+            resp = requests.post(
+                OVERPASS_URL,
+                data={"data": query},
+                headers={"User-Agent": USER_AGENT},
+                timeout=20,
+            )
+            if resp.status_code == 429:
+                wait = int(resp.headers.get("Retry-After", 5 * attempt))
+                if attempt < 3:
+                    print(f"[osm] overpass rate-limited, waiting {wait}s (retry {attempt}/3)\u2026")
+                    time.sleep(wait)
+                    continue
+                break
+            resp.raise_for_status()
+            pois: list[dict[str, Any]] = []
+            for el in resp.json().get("elements", []):
+                tags = el.get("tags", {})
+                el_lat = el.get("lat") or el.get("center", {}).get("lat")
+                el_lng = el.get("lon") or el.get("center", {}).get("lon")
+                if el_lat is None or el_lng is None:
+                    continue
+                category = tags.get("amenity") or tags.get("highway") or "unknown"
+                pois.append({
+                    "name": tags.get("name"),
+                    "category": category,
+                    "distance_m": round(_haversine(lat, lng, el_lat, el_lng), 1),
+                })
+            return sorted(pois, key=lambda p: p["distance_m"])
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError,
+                requests.exceptions.HTTPError) as exc:
+            wait = 5 * attempt
+            if attempt < 3:
+                print(f"[osm] overpass error ({type(exc).__name__}), waiting {wait}s (retry {attempt}/3)\u2026")
+                time.sleep(wait)
+        except Exception as exc:  # noqa: BLE001 - non-retriable (e.g. bad JSON)
+            print(f"[osm] WARN overpass failed for {lat},{lng}; POIs unknown ({exc})")
+            return []
+    print(f"[osm] WARN overpass failed for {lat},{lng}; POIs unknown")
+    return []
 
 
 def enrich(report_dict: dict, use_cache: bool = True) -> dict:
