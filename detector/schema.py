@@ -46,6 +46,7 @@ class RawIssue(BaseModel):
     severity: int = Field(ge=1, le=5)
     confidence: float = Field(ge=0.0, le=1.0)
     road_context: RoadContext = RoadContext.UNKNOWN
+    box_2d: Optional[List[int]] = None
 
 
 class POI(BaseModel):

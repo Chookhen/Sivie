@@ -38,9 +38,13 @@ sidewalks, buildings, medians):
 Rate severity 1-5 (1=cosmetic, 5=immediate safety hazard) and confidence
 0.0-1.0. Be conservative with confidence.
 
+For each issue, include box_2d: [ymin, xmin, ymax, xmax] normalized 0-1000,
+tightly bounding the defect. If the defect cannot be precisely localized,
+set box_2d to null.
+
 Return ONLY valid JSON, no markdown, matching exactly:
 {"issues": [{"type": "...", "description": "...", "severity": 1-5,
-"confidence": 0.0-1.0, "road_context": "..."}]}
+"confidence": 0.0-1.0, "road_context": "...", "box_2d": [ymin, xmin, ymax, xmax]}]}
 If no issues are visible, return {"issues": []}.
 """
 
@@ -63,6 +67,10 @@ def mock_response(seed_key: str) -> VisionResponse:
     n = rng.randint(1, 2)
     issues = []
     for _ in range(n):
+        ymin = rng.randint(420, 580)
+        xmin = rng.randint(150, 430)
+        ymax = min(1000, ymin + rng.randint(80, 220))
+        xmax = min(1000, xmin + rng.randint(120, 320))
         issues.append(
             {
                 "type": rng.choice(_MOCK_TYPES),
@@ -70,6 +78,7 @@ def mock_response(seed_key: str) -> VisionResponse:
                 "severity": rng.randint(1, 5),
                 "confidence": round(rng.uniform(0.55, 0.97), 2),
                 "road_context": rng.choice(_MOCK_CONTEXTS),
+                "box_2d": [ymin, xmin, ymax, xmax],
             }
         )
     return VisionResponse(issues=issues)
@@ -90,13 +99,16 @@ class VisionClient:
             import google.generativeai as genai
 
             genai.configure(api_key=api_key)
+            gen_cfg: dict = {
+                "temperature": temperature,
+                "response_mime_type": "application/json",
+            }
+            if hasattr(genai, "types") and hasattr(genai.types, "ThinkingConfig"):
+                gen_cfg["thinking_config"] = {"thinking_budget": 0}
             self._model = genai.GenerativeModel(
                 MODEL_NAME,
                 system_instruction=INSTRUCTION,
-                generation_config={
-                    "temperature": temperature,
-                    "response_mime_type": "application/json",
-                },
+                generation_config=gen_cfg,
             )
 
     def analyze(self, image_path: str) -> VisionResponse:
