@@ -8,3 +8,6 @@ venv/
 output/
 frames_tmp/
 detections.json
+web/.env
+web/node_modules/
+web/dist/
