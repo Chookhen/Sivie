@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Detection, DetectionReport, IssueType, PriorityLabel } from './types'
+import NavBar, { Page } from './components/NavBar'
 import MapView from './components/MapView'
 import Sidebar from './components/Sidebar'
+import AnalysisPage from './pages/AnalysisPage'
 
 export default function App() {
   const [report, setReport] = useState<DetectionReport | null>(null)
@@ -12,6 +14,7 @@ export default function App() {
   const [filterType, setFilterType] = useState<IssueType | 'ALL'>('ALL')
   const [showHeatmap, setShowHeatmap] = useState(false)
   const [flyTo, setFlyTo] = useState<{ lat: number; lng: number; ts: number } | null>(null)
+  const [page, setPage] = useState<Page>('map')
 
   useEffect(() => {
     fetch('/detections.json')
@@ -53,28 +56,35 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-900">
-      <Sidebar
-        detections={filtered}
-        allDetections={allDetections}
-        selected={selected}
-        filterPriority={filterPriority}
-        filterType={filterType}
-        onFilterPriority={setFilterPriority}
-        onFilterType={setFilterType}
-        onSelect={handleRowClick}
-        showHeatmap={showHeatmap}
-        onToggleHeatmap={() => setShowHeatmap(v => !v)}
-      />
-      <div className="flex-1 relative">
-        <MapView
-          detections={filtered}
-          selected={selected}
-          flyTo={flyTo}
-          showHeatmap={showHeatmap}
-          onSelect={setSelected}
-        />
-      </div>
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-900">
+      <NavBar page={page} onNavigate={setPage} />
+      {page === 'map' ? (
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          <Sidebar
+            detections={filtered}
+            allDetections={allDetections}
+            selected={selected}
+            filterPriority={filterPriority}
+            filterType={filterType}
+            onFilterPriority={setFilterPriority}
+            onFilterType={setFilterType}
+            onSelect={handleRowClick}
+            showHeatmap={showHeatmap}
+            onToggleHeatmap={() => setShowHeatmap(v => !v)}
+          />
+          <div className="flex-1 relative min-w-0">
+            <MapView
+              detections={filtered}
+              selected={selected}
+              flyTo={flyTo}
+              showHeatmap={showHeatmap}
+              onSelect={setSelected}
+            />
+          </div>
+        </div>
+      ) : (
+        <AnalysisPage detections={allDetections} />
+      )}
     </div>
   )
 }

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 from typing import List, Optional
 
 from .frame_extraction import Frame, get_frames, is_too_blurry
@@ -17,12 +19,16 @@ def run_pipeline(
     max_frames: Optional[int] = None,
     mock: bool = False,
     skip_blur_check: bool = False,
+    save_frames_dir: Optional[str] = None,
 ) -> DetectionReport:
     frames: List[Frame] = get_frames(input_path, fps)
     if max_frames is not None:
         frames = frames[:max_frames]
 
     print(f"[pipeline] {len(frames)} candidate frame(s) from {input_path}")
+
+    if save_frames_dir:
+        os.makedirs(save_frames_dir, exist_ok=True)
 
     client = VisionClient(mock=mock)
     report = DetectionReport(source=input_path, frame_count=len(frames))
@@ -41,6 +47,12 @@ def run_pipeline(
             failed += 1
             print(f"[pipeline] WARN frame {frame.name} failed: {exc}")
             continue
+
+        if save_frames_dir:
+            try:
+                shutil.copy2(frame.path, os.path.join(save_frames_dir, frame.name))
+            except OSError:
+                pass
 
         for issue in vision.issues:
             priority = compute_priority(issue)

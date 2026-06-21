@@ -37,7 +37,9 @@ load_dotenv()
               help="GPS track file (.gpx or .csv).")
 @click.option("--time-offset", default=0.0, show_default=True, type=float,
               help="Seconds to shift video time to align with GPS clock.")
-def main(input_path, fps, output, max_frames, blur_threshold, mock, skip_blur_check, gpx_path, time_offset):
+@click.option("--save-frames-dir", "save_frames_dir", default=None,
+              help="Copy analyzed frames here; adds image_url to each detection.")
+def main(input_path, fps, output, max_frames, blur_threshold, mock, skip_blur_check, gpx_path, time_offset, save_frames_dir):
     report = run_pipeline(
         input_path=input_path,
         fps=fps,
@@ -45,9 +47,13 @@ def main(input_path, fps, output, max_frames, blur_threshold, mock, skip_blur_ch
         max_frames=max_frames,
         mock=mock,
         skip_blur_check=skip_blur_check,
+        save_frames_dir=save_frames_dir,
     )
 
     report_dict = report.model_dump(mode="json")
+    if save_frames_dir:
+        for det in report_dict["detections"]:
+            det["image_url"] = f"/frames/{det['frame']}"
     if gpx_path:
         apply_gps(report_dict, load_track(gpx_path), time_offset)
     elif mock:
