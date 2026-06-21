@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -61,6 +61,8 @@ class Detection(RawIssue):
     timestamp_offset_sec: float
     priority: float = 0.0
     priority_label: PriorityLabel = PriorityLabel.LOW
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 
 class DetectionReport(BaseModel):

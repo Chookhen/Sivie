@@ -12,6 +12,7 @@ import json
 import click
 from dotenv import load_dotenv
 
+from detector.gps_sync import apply_gps, generate_mock_track, load_track
 from detector.pipeline import run_pipeline
 
 load_dotenv()
@@ -32,7 +33,11 @@ load_dotenv()
               help="Run with fake detections (no API key / footage needed).")
 @click.option("--skip-blur-check", is_flag=True, default=False,
               help="Disable the blur filter.")
-def main(input_path, fps, output, max_frames, blur_threshold, mock, skip_blur_check):
+@click.option("--gpx", "gpx_path", default=None,
+              help="GPS track file (.gpx or .csv).")
+@click.option("--time-offset", default=0.0, show_default=True, type=float,
+              help="Seconds to shift video time to align with GPS clock.")
+def main(input_path, fps, output, max_frames, blur_threshold, mock, skip_blur_check, gpx_path, time_offset):
     report = run_pipeline(
         input_path=input_path,
         fps=fps,
@@ -42,8 +47,14 @@ def main(input_path, fps, output, max_frames, blur_threshold, mock, skip_blur_ch
         skip_blur_check=skip_blur_check,
     )
 
+    report_dict = report.model_dump(mode="json")
+    if gpx_path:
+        apply_gps(report_dict, load_track(gpx_path), time_offset)
+    elif mock:
+        apply_gps(report_dict, generate_mock_track(), time_offset)
+
     with open(output, "w", encoding="utf-8") as fh:
-        json.dump(report.model_dump(mode="json"), fh, indent=2)
+        json.dump(report_dict, fh, indent=2)
 
     print(f"\nWrote {len(report.detections)} detection(s) -> {output}")
     top = report.detections[:5]
