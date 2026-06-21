@@ -1,9 +1,9 @@
 export type PriorityLabel = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
 
 export interface POI {
-  name: string
+  name: string | null
   category: string
-  distance: number
+  distance_m: number
 }
 
 export type IssueType = 'pothole' | 'crack' | 'obscured_sign' | 'faded_marking' | 'debris' | 'other'
@@ -28,6 +28,7 @@ export interface Detection {
   priority_multiplier?: number | null
   final_priority?: number | null
   justification?: string | null
+  box_2d?: [number, number, number, number] | null
 }
 
 export interface DetectionReport {

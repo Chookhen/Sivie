@@ -20,22 +20,78 @@ interface FrameGroup {
   max_priority_label: PriorityLabel
 }
 
-function ImageSlot({ src, alt, className }: { src?: string | null; alt: string; className: string }) {
-  const [err, setErr] = useState(false)
-  if (src && !err) {
+function FrameImage({
+  src, alt, detections, activeIdx, onBoxClick, fill = true,
+}: {
+  src?: string | null
+  alt: string
+  detections: Detection[]
+  activeIdx?: number | null
+  onBoxClick?: (idx: number) => void
+  fill?: boolean
+}) {
+  const [imgErr, setImgErr] = useState(false)
+
+  const wrapCls = fill ? 'relative w-full h-full' : 'relative w-full'
+  const imgCls  = fill ? 'w-full h-full object-cover bg-slate-700' : 'w-full h-auto block bg-slate-900'
+
+  if (!src || imgErr) {
     return (
-      <img
-        src={src}
-        alt={alt}
-        className={className}
-        onError={() => setErr(true)}
-      />
+      <div className={`${wrapCls} flex flex-col items-center justify-center gap-1.5 text-slate-600 bg-slate-700`}>
+        <ImageOff size={28} />
+        <span className="text-xs">No image</span>
+      </div>
     )
   }
+
   return (
-    <div className={`${className} flex flex-col items-center justify-center gap-1.5 text-slate-600`}>
-      <ImageOff size={28} />
-      <span className="text-xs">No image</span>
+    <div className={wrapCls}>
+      <img src={src} alt={alt} className={imgCls} onError={() => setImgErr(true)} />
+      {detections.map((d, i) => {
+        if (!d.box_2d) return null
+        const [ymin, xmin, ymax, xmax] = d.box_2d
+        const color = PRIORITY_COLOR[d.priority_label]
+        const isActive = activeIdx === i
+        const score = (d.final_priority ?? d.priority).toFixed(1)
+        return (
+          <div
+            key={i}
+            style={{
+              position: 'absolute',
+              left:   `${xmin / 10}%`,
+              top:    `${ymin / 10}%`,
+              width:  `${(xmax - xmin) / 10}%`,
+              height: `${(ymax - ymin) / 10}%`,
+              border: `${isActive ? 2.5 : 1.5}px solid ${color}`,
+              borderRadius: 2,
+              boxShadow: isActive ? `0 0 0 1px ${color}55, 0 0 8px ${color}77` : undefined,
+              cursor: onBoxClick ? 'pointer' : undefined,
+              transition: 'border-width 0.1s, box-shadow 0.15s',
+            }}
+            onClick={onBoxClick ? (e) => { e.stopPropagation(); onBoxClick(i) } : undefined}
+          >
+            <span
+              style={{
+                position: 'absolute',
+                bottom: '100%',
+                left: -1,
+                background: color,
+                color: '#fff',
+                fontSize: 9,
+                lineHeight: '14px',
+                padding: '0 3px',
+                borderRadius: '2px 2px 0 0',
+                whiteSpace: 'nowrap',
+                fontWeight: 700,
+                pointerEvents: 'none',
+                userSelect: 'none',
+              } as React.CSSProperties}
+            >
+              {d.type.replace(/_/g, ' ')} {score}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -51,15 +107,19 @@ function FrameCard({ group, onClick }: { group: FrameGroup; onClick: () => void 
       style={{ borderLeftColor: color, borderLeftWidth: 3 }}
     >
       <div className="relative h-44 bg-slate-700 overflow-hidden">
-        <ImageSlot src={group.image_url} alt={group.frame} className="w-full h-full object-cover bg-slate-700" />
+        <FrameImage
+          src={group.image_url}
+          alt={group.frame}
+          detections={group.detections}
+        />
         <div
-          className="absolute top-2 right-2 text-xs font-bold px-2 py-0.5 rounded backdrop-blur-sm"
+          className="absolute top-2 right-2 z-10 text-xs font-bold px-2 py-0.5 rounded backdrop-blur-sm"
           style={{ background: `${color}33`, color, border: `1px solid ${color}55` }}
         >
           {group.max_priority_label}
         </div>
         {group.detections.length > 1 && (
-          <div className="absolute bottom-2 left-2 text-xs px-2 py-0.5 rounded bg-black/60 text-slate-300">
+          <div className="absolute bottom-2 left-2 z-10 text-xs px-2 py-0.5 rounded bg-black/60 text-slate-300">
             {group.detections.length} issues
           </div>
         )}
@@ -104,10 +164,15 @@ function FrameCard({ group, onClick }: { group: FrameGroup; onClick: () => void 
   )
 }
 
-function DetectionDetail({ d }: { d: Detection }) {
+function DetectionDetail({ d, active = false }: { d: Detection; active?: boolean }) {
   const color = PRIORITY_COLOR[d.priority_label]
   return (
-    <div className="border border-slate-700 rounded-lg p-3 space-y-2">
+    <div
+      className="border rounded-lg p-3 space-y-2 transition-colors"
+      style={active
+        ? { borderColor: `${color}77`, background: `${color}11` }
+        : { borderColor: '#334155' }}
+    >
       <div className="flex items-center gap-2 flex-wrap">
         <span
           className="text-xs font-bold px-2 py-0.5 rounded"
@@ -144,7 +209,7 @@ function DetectionDetail({ d }: { d: Detection }) {
 
       {d.nearby_pois && d.nearby_pois.length > 0 && (
         <div className="text-xs text-slate-500">
-          Nearby: {d.nearby_pois.map(p => `${p.name} (${p.category}, ${p.distance}m)`).join(' · ')}
+          Nearby: {d.nearby_pois.map(p => `${p.name ?? p.category} (${p.distance_m}m)`).join(' · ')}
         </div>
       )}
 
@@ -167,6 +232,10 @@ function DetectionDetail({ d }: { d: Detection }) {
 
 function DetailModal({ group, onClose }: { group: FrameGroup; onClose: () => void }) {
   const color = PRIORITY_COLOR[group.max_priority_label]
+  const [activeBox, setActiveBox] = useState<number | null>(null)
+
+  const toggleBox = (i: number) => setActiveBox(prev => prev === i ? null : i)
+
   return (
     <div
       className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4"
@@ -191,20 +260,32 @@ function DetailModal({ group, onClose }: { group: FrameGroup; onClose: () => voi
           </button>
         </div>
 
-        <div className="bg-slate-900 h-64 flex items-center justify-center overflow-hidden">
-          <ImageSlot
+        <div className="bg-slate-900 overflow-hidden">
+          <FrameImage
             src={group.image_url}
             alt={group.frame}
-            className="h-full w-full object-contain bg-slate-900"
+            detections={group.detections}
+            activeIdx={activeBox}
+            onBoxClick={toggleBox}
+            fill={false}
           />
         </div>
 
         <div className="p-4 space-y-3">
           <div className="text-xs text-slate-500 uppercase tracking-wider">
             {group.detections.length} Detection{group.detections.length !== 1 ? 's' : ''}
+            {group.detections.some(d => d.box_2d) && (
+              <span className="ml-2 normal-case text-slate-600">· click a row to highlight its box</span>
+            )}
           </div>
           {group.detections.map((d, i) => (
-            <DetectionDetail key={i} d={d} />
+            <div
+              key={i}
+              onClick={() => d.box_2d != null && toggleBox(i)}
+              className={d.box_2d != null ? 'cursor-pointer' : ''}
+            >
+              <DetectionDetail d={d} active={activeBox === i} />
+            </div>
           ))}
         </div>
       </div>
