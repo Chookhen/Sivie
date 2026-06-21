@@ -97,6 +97,34 @@ VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".webm"}
 GPS_EXTS = {".gpx", ".csv"}
 DETECTIONS_OUT = os.path.join(ROOT, "web", "public", "detections.json")
 FRAMES_OUT = os.path.join(ROOT, "web", "public", "frames")
+BACKUP_DIR = os.path.join(ROOT, "data", "backups")
+MAX_BACKUPS = 10
+
+
+def _backup_detections() -> Optional[str]:
+    """Snapshot the current detections.json before a run overwrites it.
+
+    A processing run replaces detections.json and wipes frames/, so without this
+    a run would silently destroy the previous (possibly hand-curated) dataset.
+    Keeps the most recent MAX_BACKUPS snapshots.
+    """
+    if not os.path.isfile(DETECTIONS_OUT):
+        return None
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    import time as _time
+    stamp = _time.strftime("%Y%m%d-%H%M%S")
+    dest = os.path.join(BACKUP_DIR, f"detections_{stamp}.json")
+    shutil.copy2(DETECTIONS_OUT, dest)
+    backups = sorted(
+        f for f in os.listdir(BACKUP_DIR)
+        if f.startswith("detections_") and f.endswith(".json")
+    )
+    for stale in backups[:-MAX_BACKUPS]:
+        try:
+            os.remove(os.path.join(BACKUP_DIR, stale))
+        except OSError:
+            pass
+    return dest
 
 
 def _resolve_in_data(rel_path: str) -> str:
@@ -188,6 +216,9 @@ def start_process(req: ProcessRequest) -> dict:
 
     video_abs = _resolve_in_data(req.video)
 
+    # Snapshot the existing dataset before we overwrite it (prevents data loss).
+    backup = _backup_detections()
+
     # Start from a clean frame dir so the gallery only shows this run's frames.
     shutil.rmtree(FRAMES_OUT, ignore_errors=True)
     os.makedirs(FRAMES_OUT, exist_ok=True)
@@ -230,7 +261,9 @@ def start_process(req: ProcessRequest) -> dict:
             return f"[post] reseed skipped: {exc}"
 
     job = start_job(cmd, label=os.path.basename(video_abs), on_success=on_success)
-    return {"job_id": job.id, **job.snapshot()}
+    if backup:
+        job.append(f"[backup] previous dataset saved -> {os.path.relpath(backup, ROOT)}")
+    return {"job_id": job.id, "backup": (os.path.relpath(backup, ROOT) if backup else None), **job.snapshot()}
 
 
 @app.get("/api/process")
