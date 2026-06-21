@@ -12,6 +12,7 @@ import json
 import click
 from dotenv import load_dotenv
 
+from detector.dedupe import dedupe as _dedupe
 from detector.gps_sync import apply_gps, generate_mock_track, load_track
 from detector.osm_context import enrich
 from detector.pipeline import run_pipeline
@@ -43,13 +44,15 @@ load_dotenv()
               help="Copy analyzed frames here; adds image_url to each detection.")
 @click.option("--request-delay", "request_delay_sec", default=0.0, show_default=True, type=float,
               help="Seconds to wait between API calls (use ~7 to avoid rate limiting).")
+@click.option("--dedupe", "do_dedupe", is_flag=True, default=False,
+              help="Collapse duplicate detections of the same physical hazard (best-frame wins).")
 @click.option("--enrich", "enrich_osm", is_flag=True, default=False,
               help="Enrich detections with OSM road name, road class, and nearby POIs.")
 @click.option("--no-cache", "no_cache", is_flag=True, default=False,
               help="Bypass the OSM lookup cache (always fetch fresh).")
 @click.option("--clear-cache", "clear_cache", is_flag=True, default=False,
               help="Delete the OSM cache file and exit.")
-def main(input_path, fps, output, max_frames, blur_threshold, mock, skip_blur_check, gpx_path, time_offset, save_frames_dir, request_delay_sec, enrich_osm, no_cache, clear_cache):
+def main(input_path, fps, output, max_frames, blur_threshold, mock, skip_blur_check, gpx_path, time_offset, save_frames_dir, request_delay_sec, do_dedupe, enrich_osm, no_cache, clear_cache):
     if clear_cache:
         _cache.clear_cache()
         return
@@ -77,18 +80,22 @@ def main(input_path, fps, output, max_frames, blur_threshold, mock, skip_blur_ch
     elif mock:
         apply_gps(report_dict, generate_mock_track(), time_offset)
 
+    if do_dedupe:
+        _dedupe(report_dict, use_gps=bool(gpx_path or mock), frames_dir=save_frames_dir)
+
     if enrich_osm:
         enrich(report_dict, use_cache=not no_cache)
 
     with open(output, "w", encoding="utf-8") as fh:
         json.dump(report_dict, fh, indent=2)
 
-    print(f"\nWrote {len(report.detections)} detection(s) -> {output}")
-    top = report.detections[:5]
+    written = report_dict["detections"]
+    print(f"\nWrote {len(written)} detection(s) -> {output}")
+    top = written[:5]
     if top:
         print("\nTop priorities:")
         for d in top:
-            print(f"  [{d.priority_label.value:>8}] {d.priority:>5} | {d.type.value:<14} | {d.frame} | {d.description}")
+            print(f"  [{d['priority_label']:>8}] {d['priority']:>5} | {d['type']:<14} | {d['frame']} | {d['description']}")
 
 
 if __name__ == "__main__":

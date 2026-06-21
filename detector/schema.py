@@ -77,6 +77,7 @@ class Detection(RawIssue):
     road_class: Optional[str] = None
     road_context_vision: Optional[str] = None
     nearby_pois: List[POI] = Field(default_factory=list)
+    duplicate_count: Optional[int] = None
 
 
 class DetectionReport(BaseModel):

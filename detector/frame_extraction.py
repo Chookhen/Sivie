@@ -73,10 +73,15 @@ def get_frames(input_path: str, fps: float, tmp_dir: str | None = None) -> List[
     raise ValueError(f"Unsupported input: {input_path} (expected a video file or image folder)")
 
 
-def is_too_blurry(image_path: str, threshold: float) -> bool:
-    """Laplacian-variance blur check. Low variance => blurry => skip."""
+def laplacian_variance(image_path: str) -> float | None:
+    """Return Laplacian variance (sharpness proxy). None if image unreadable."""
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if img is None:
-        return True
-    variance = cv2.Laplacian(img, cv2.CV_64F).var()
-    return variance < threshold
+        return None
+    return float(cv2.Laplacian(img, cv2.CV_64F).var())
+
+
+def is_too_blurry(image_path: str, threshold: float) -> bool:
+    """Laplacian-variance blur check. Low variance => blurry => skip."""
+    v = laplacian_variance(image_path)
+    return v is None or v < threshold
