@@ -6,3 +6,4 @@ python-dotenv==1.0.1
 click==8.1.7
 tenacity==9.0.0
 gpxpy==1.6.2
+requests==2.32.3

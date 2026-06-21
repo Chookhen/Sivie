@@ -13,13 +13,15 @@ import click
 from dotenv import load_dotenv
 
 from detector.gps_sync import apply_gps, generate_mock_track, load_track
+from detector.osm_context import enrich
 from detector.pipeline import run_pipeline
+from detector import cache as _cache
 
 load_dotenv()
 
 
 @click.command()
-@click.option("--input", "input_path", required=True,
+@click.option("--input", "input_path", default=None,
               help="Path to a video file OR a folder of images.")
 @click.option("--fps", default=1.0, show_default=True, type=float,
               help="Frames per second to extract (video input only).")
@@ -41,7 +43,20 @@ load_dotenv()
               help="Copy analyzed frames here; adds image_url to each detection.")
 @click.option("--request-delay", "request_delay_sec", default=0.0, show_default=True, type=float,
               help="Seconds to wait between API calls (use ~7 to avoid rate limiting).")
-def main(input_path, fps, output, max_frames, blur_threshold, mock, skip_blur_check, gpx_path, time_offset, save_frames_dir, request_delay_sec):
+@click.option("--enrich", "enrich_osm", is_flag=True, default=False,
+              help="Enrich detections with OSM road name, road class, and nearby POIs.")
+@click.option("--no-cache", "no_cache", is_flag=True, default=False,
+              help="Bypass the OSM lookup cache (always fetch fresh).")
+@click.option("--clear-cache", "clear_cache", is_flag=True, default=False,
+              help="Delete the OSM cache file and exit.")
+def main(input_path, fps, output, max_frames, blur_threshold, mock, skip_blur_check, gpx_path, time_offset, save_frames_dir, request_delay_sec, enrich_osm, no_cache, clear_cache):
+    if clear_cache:
+        _cache.clear_cache()
+        return
+
+    if not input_path:
+        raise click.UsageError("Missing option '--input'.")
+
     report = run_pipeline(
         input_path=input_path,
         fps=fps,
@@ -61,6 +76,9 @@ def main(input_path, fps, output, max_frames, blur_threshold, mock, skip_blur_ch
         apply_gps(report_dict, load_track(gpx_path), time_offset)
     elif mock:
         apply_gps(report_dict, generate_mock_track(), time_offset)
+
+    if enrich_osm:
+        enrich(report_dict, use_cache=not no_cache)
 
     with open(output, "w", encoding="utf-8") as fh:
         json.dump(report_dict, fh, indent=2)

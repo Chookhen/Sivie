@@ -48,6 +48,14 @@ class RawIssue(BaseModel):
     road_context: RoadContext = RoadContext.UNKNOWN
 
 
+class POI(BaseModel):
+    """A nearby point of interest returned by Overpass."""
+
+    name: Optional[str] = None
+    category: str
+    distance_m: float
+
+
 class VisionResponse(BaseModel):
     """Top-level JSON the vision model must return for a single frame."""
 
@@ -64,6 +72,10 @@ class Detection(RawIssue):
     lat: Optional[float] = None
     lng: Optional[float] = None
     image_url: Optional[str] = None
+    road_name: Optional[str] = None
+    road_class: Optional[str] = None
+    road_context_vision: Optional[str] = None
+    nearby_pois: List[POI] = Field(default_factory=list)
 
 
 class DetectionReport(BaseModel):
