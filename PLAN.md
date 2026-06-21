@@ -136,3 +136,119 @@ shows a priority map + ranked work-order list. This is the demo centerpiece.
 Group detections within ~25m so dense problem zones (e.g. a freeway stretch of
 potholes) surface as a single high-priority cluster. Add a `cluster_id` and an
 aggregate cluster priority. Only do this after Stages 2 and 3 work.
+
+---
+
+## Stage 5 — OSM location-context enrichment
+
+**Goal:** turn each detection's exact `lat`/`lng` (ground truth from GPS) into
+verified real-world context the reasoning model can use. The AI never guesses
+location; it only consumes these facts.
+
+### Pipeline ordering change
+GPS sync (Stage 2) must run BEFORE this stage so coordinates exist. Move the
+GPS step earlier in the chain; enrichment consumes `lat`/`lng`.
+
+### New file: `detector/osm_context.py`
+- `reverse_geocode(lat, lng) -> {road_name, road_class}` via Nominatim.
+  - Required `User-Agent` header; respect 1 req/sec.
+  - `road_class` from OSM highway tag (motorway/trunk/primary/secondary/
+    residential/...). Maps to road_context: motorway/trunk -> freeway,
+    primary/secondary -> arterial, residential/service -> residential.
+- `nearby_pois(lat, lng, radius_m=50) -> list[POI]` via Overpass.
+  - Categories: school, hospital, **crosswalk** (highway=crossing).
+  - Return name + category + distance.
+- `enrich(report_dict) -> report_dict`: add `road_name`, `road_class`,
+  and `nearby_pois` to each detection.
+
+### Caching (correctness-safe, see notes)
+- New file `detector/cache.py`: a local JSON (or SQLite) cache keyed by
+  coordinates rounded to **5 decimal places (~1m)** — finer than GPS error, so
+  distinct spots never merge.
+- Cache applies ONLY to OSM lookups, never to vision analysis. A cache miss
+  triggers a fresh fetch; a fetch failure falls back to `road_class=unknown`
+  and empty POIs. A detection is NEVER skipped or dropped.
+- CLI flags: `--no-cache` (bypass) and `--clear-cache`.
+
+### Schema extension (`detector/schema.py`)
+Add optional `road_name: Optional[str]`, `road_class: Optional[str]`,
+`nearby_pois: list[POI] = []`. Keep all optional for backward compatibility.
+
+### Acceptance criteria
+- A real detection gets a correct street name + road_class from its coords.
+- A coordinate near a school/hospital/crosswalk lists it within 50m.
+- OSM failure degrades gracefully (unknown context, detection still scored).
+- Re-running uses the cache (fast) and produces identical context.
+
+### Commit
+`feat: add OSM reverse-geocode + nearby-POI enrichment with safe caching`
+
+---
+
+## Stage 6 — AI reasoning triage (context-aware priority)
+
+**Goal:** a low-volume, high-reasoning pass that adjusts the deterministic
+baseline using verified location context. Decision (b): the deterministic
+score is the BASE; the AI applies a context multiplier + written justification.
+
+### Model
+`gemini-2.5-flash` with thinking enabled (Pro is gated on this key). Few
+detections => one BATCH call over all of them is cheap and fast.
+
+### New file: `detector/triage.py`
+- Input: all detections incl. type/severity/description/`lat`/`lng`/
+  `road_name`/`road_class`/`nearby_pois`/deterministic `priority`.
+- The model receives location/context as FACTS (it must not infer location).
+- Output per detection: `priority_multiplier` (e.g. 0.5–2.0), `final_priority`
+  (= deterministic priority * multiplier), and `justification` (1–2 sentences
+  citing the context, e.g. "pothole within a crosswalk 20m from a school").
+- Deterministic score is the fallback if the triage call fails (demo-safe).
+
+### Schema extension
+Add optional `priority_multiplier: Optional[float]`,
+`final_priority: Optional[float]`, `justification: Optional[str]`.
+Map UI sorts by `final_priority` when present, else `priority`.
+
+### Acceptance criteria
+- Hazards in sensitive contexts (crosswalk/school) rank above identical
+  hazards on empty roads.
+- Every detection has a human-readable justification.
+- Triage failure falls back cleanly to deterministic scores.
+
+### Commit
+`feat: add context-aware AI reasoning triage for priority`
+
+---
+
+## Stage 7 — Analysis Review screen (see the AI judgement + evidence)
+
+**Goal:** a dedicated page that shows the actual analyzed image alongside the
+AI's detection + reasoning, so users (and judges) can audit the AI's work.
+
+### Dependency: persist analyzed frames
+The pipeline currently discards extracted frames. Add an option to SAVE each
+analyzed frame to `web/public/frames/<frame_name>` and store an `image_url`
+(e.g. `/frames/frame_00007.jpg`) on each detection so the UI can display it.
+
+### Route
+Add a second page/route to the existing `web/` app (e.g. `/analysis`), with
+nav between the Map and the Analysis Review.
+
+### Layout
+- A scrollable list/grid of analyzed frames. For each frame card:
+  - The image itself.
+  - Overlaid or listed detections with `type`, `severity`, `confidence`.
+  - The exact location: `road_name`, `lat`/`lng`, nearby POIs.
+  - The deterministic priority, the AI `priority_multiplier`, `final_priority`,
+    `priority_label`, and the AI `justification` text.
+- A detail view when a card is clicked (larger image + full reasoning).
+- Filters by `priority_label` and `type`; "no issues" frames clearly marked.
+
+### Acceptance criteria
+- The page lists analyzed frames with their images loaded from
+  `web/public/frames/`.
+- Each detection shows image + detection + location + AI justification together.
+- Works against the same `web/public/detections.json` the map uses.
+
+### Commit
+`feat: add Analysis Review page showing AI judgement with image evidence`
