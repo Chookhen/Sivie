@@ -39,7 +39,9 @@ load_dotenv()
               help="Seconds to shift video time to align with GPS clock.")
 @click.option("--save-frames-dir", "save_frames_dir", default=None,
               help="Copy analyzed frames here; adds image_url to each detection.")
-def main(input_path, fps, output, max_frames, blur_threshold, mock, skip_blur_check, gpx_path, time_offset, save_frames_dir):
+@click.option("--request-delay", "request_delay_sec", default=0.0, show_default=True, type=float,
+              help="Seconds to wait between API calls (use ~7 to avoid rate limiting).")
+def main(input_path, fps, output, max_frames, blur_threshold, mock, skip_blur_check, gpx_path, time_offset, save_frames_dir, request_delay_sec):
     report = run_pipeline(
         input_path=input_path,
         fps=fps,
@@ -48,6 +50,7 @@ def main(input_path, fps, output, max_frames, blur_threshold, mock, skip_blur_ch
         mock=mock,
         skip_blur_check=skip_blur_check,
         save_frames_dir=save_frames_dir,
+        request_delay_sec=request_delay_sec,
     )
 
     report_dict = report.model_dump(mode="json")

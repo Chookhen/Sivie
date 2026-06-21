@@ -15,13 +15,12 @@ import mimetypes
 import os
 import random
 import re
+import time
 from typing import Optional
-
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from .schema import VisionResponse
 
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 INSTRUCTION = """You are a municipal road-infrastructure inspector reviewing a
 single dashcam frame captured from a city vehicle.
@@ -105,13 +104,27 @@ class VisionClient:
             return mock_response(os.path.basename(image_path))
         return self._analyze_real(image_path)
 
-    @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=8))
     def _analyze_real(self, image_path: str) -> VisionResponse:
         with open(image_path, "rb") as fh:
             data = fh.read()
         mime_type = mimetypes.guess_type(image_path)[0] or "image/jpeg"
-        resp = self._model.generate_content(
-            [{"mime_type": mime_type, "data": data}, "Analyze this frame."]
-        )
-        raw = _strip_code_fences(resp.text or "{}")
-        return VisionResponse.model_validate(json.loads(raw))
+        for attempt in range(1, 4):
+            try:
+                resp = self._model.generate_content(
+                    [{"mime_type": mime_type, "data": data}, "Analyze this frame."]
+                )
+                raw = _strip_code_fences(resp.text or "{}")
+                return VisionResponse.model_validate(json.loads(raw))
+            except Exception as exc:  # noqa: BLE001
+                msg = str(exc)
+                if "429" in msg or "ResourceExhausted" in msg or "RESOURCE_EXHAUSTED" in msg:
+                    wait = 45
+                    m = re.search(r'retry in (\d+)', msg)
+                    if m:
+                        wait = int(m.group(1)) + 3
+                    if attempt < 3:
+                        print(f"[vision] rate-limited, waiting {wait}s before retry {attempt}/3…")
+                        time.sleep(wait)
+                        continue
+                raise
+        raise RuntimeError("exhausted retries")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 from typing import List, Optional
 
 from .frame_extraction import Frame, get_frames, is_too_blurry
@@ -20,6 +21,7 @@ def run_pipeline(
     mock: bool = False,
     skip_blur_check: bool = False,
     save_frames_dir: Optional[str] = None,
+    request_delay_sec: float = 0.0,
 ) -> DetectionReport:
     frames: List[Frame] = get_frames(input_path, fps)
     if max_frames is not None:
@@ -40,6 +42,9 @@ def run_pipeline(
         if not skip_blur_check and not mock and is_too_blurry(frame.path, blur_threshold):
             skipped_blur += 1
             continue
+
+        if not mock and request_delay_sec > 0 and i > 1:
+            time.sleep(request_delay_sec)
 
         try:
             vision = client.analyze(frame.path)
